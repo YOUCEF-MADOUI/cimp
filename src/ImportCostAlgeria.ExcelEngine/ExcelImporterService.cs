@@ -21,6 +21,34 @@ public sealed record ExcelImportConversionResult(
     IReadOnlyList<string> ValidationMessages);
 
 /// <summary>
+/// Abstraction de persistance des modèles de mapping Excel par fournisseur (Sections 4, 5 & 31).
+/// Implémentée par ImportCostAlgeria.Database.Repositories.EfMappingTemplateStore pour une persistance
+/// réelle en base ; à défaut, un stockage en mémoire (session courante) est utilisé.
+/// </summary>
+public interface IMappingTemplateStore
+{
+    void Save(ExcelMappingTemplate template);
+    IReadOnlyList<ExcelMappingTemplate> GetForCompany(Guid companyId);
+}
+
+public sealed class InMemoryMappingTemplateStore : IMappingTemplateStore
+{
+    private readonly List<ExcelMappingTemplate> _savedTemplates = new();
+
+    public void Save(ExcelMappingTemplate template)
+    {
+        _savedTemplates.RemoveAll(t =>
+            t.CompanyId == template.CompanyId &&
+            (string.Equals(t.TemplateName, template.TemplateName, StringComparison.OrdinalIgnoreCase) ||
+             string.Equals(t.HeaderSignatureHash, template.HeaderSignatureHash, StringComparison.OrdinalIgnoreCase)));
+        _savedTemplates.Add(template);
+    }
+
+    public IReadOnlyList<ExcelMappingTemplate> GetForCompany(Guid companyId) =>
+        _savedTemplates.Where(t => t.CompanyId == companyId).ToList();
+}
+
+/// <summary>
 /// Service complet d'importation Excel, d'application/sauvegarde des modèles de mapping (Section 4 & 5)
 /// et de rapprochement avec la Base Produits de l'entreprise (Section 31).
 /// </summary>
@@ -28,14 +56,23 @@ public sealed class ExcelImporterService
 {
     private readonly ExcelColumnDetectorAndMapper _detector;
     private readonly ProductCatalogService _productCatalog;
-    private readonly List<ExcelMappingTemplate> _savedTemplates = new();
+    private readonly IMappingTemplateStore _templateStore;
 
     public ExcelImporterService(
         ExcelColumnDetectorAndMapper detector,
         ProductCatalogService productCatalog)
+        : this(detector, productCatalog, new InMemoryMappingTemplateStore())
+    {
+    }
+
+    public ExcelImporterService(
+        ExcelColumnDetectorAndMapper detector,
+        ProductCatalogService productCatalog,
+        IMappingTemplateStore templateStore)
     {
         _detector = detector;
         _productCatalog = productCatalog;
+        _templateStore = templateStore;
     }
 
     public ExcelMappingTemplate SaveUserMappingAsTemplate(
@@ -53,12 +90,7 @@ public sealed class ExcelImporterService
             ColumnLetterToField = new Dictionary<string, CanonicalExcelField>(columnLetterToField, StringComparer.OrdinalIgnoreCase)
         };
 
-        _savedTemplates.RemoveAll(t =>
-            t.CompanyId == companyId &&
-            (string.Equals(t.TemplateName, templateName, StringComparison.OrdinalIgnoreCase) ||
-             string.Equals(t.HeaderSignatureHash, signatureHash, StringComparison.OrdinalIgnoreCase)));
-
-        _savedTemplates.Add(template);
+        _templateStore.Save(template);
         return template;
     }
 
@@ -69,7 +101,7 @@ public sealed class ExcelImporterService
         string? defaultOriginIso2,
         IReadOnlyDictionary<string, CanonicalExcelField>? userInteractiveOverrides = null)
     {
-        var companyTemplates = _savedTemplates.Where(t => t.CompanyId == companyId).ToList();
+        var companyTemplates = _templateStore.GetForCompany(companyId);
         var analysis = _detector.AnalyzeHeaders(sheet.Headers, companyTemplates);
 
         var effectiveMap = new Dictionary<string, CanonicalExcelField>(StringComparer.OrdinalIgnoreCase);

@@ -6,6 +6,10 @@
     <RootNamespace>ImportCostAlgeria.ExcelEngine</RootNamespace>
   </PropertyGroup>
   <ItemGroup>
+    <!-- Lecture réelle de fichiers .xlsx / .xls (Priorité 3 — Import Excel/CSV réel). -->
+    <PackageReference Include="ClosedXML" Version="0.104.1" />
+  </ItemGroup>
+  <ItemGroup>
     <ProjectReference Include="..\ImportCostAlgeria.Core\ImportCostAlgeria.Core.csproj" />
   </ItemGroup>
 </Project>
