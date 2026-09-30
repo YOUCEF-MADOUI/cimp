@@ -149,8 +149,9 @@ async function renderCompanies() {
     <h1>Entreprises</h1>
     <div class="subtitle">Gestion des entreprises utilisatrices de CIMP (multi-entreprise).</div>
     <div class="card">
-      <h2>Créer une nouvelle entreprise</h2>
+      <h2 id="companyFormTitle">Créer une nouvelle entreprise</h2>
       <form id="companyForm">
+        <input type="hidden" name="id" value="" />
         <div class="grid grid-2">
           <div><label>Raison sociale *</label><input name="legalName" required /></div>
           <div><label>NIF</label><input name="nif" /></div>
@@ -158,7 +159,10 @@ async function renderCompanies() {
           <div><label>Activité</label><input name="activity" /></div>
         </div>
         <label><input type="checkbox" name="isVatNonRecoverable" checked style="width:auto;display:inline-block;margin-right:6px;" />TVA d'importation non récupérable (incluse au coût de revient)</label>
-        <button type="submit">Créer l'entreprise</button>
+        <div class="actions-row">
+          <button type="submit" id="companyFormSubmit">Créer l'entreprise</button>
+          <button type="button" class="secondary" id="companyFormCancel" style="display:none;" onclick="resetCompanyForm()">Annuler la modification</button>
+        </div>
       </form>
     </div>
     <div class="card">
@@ -167,7 +171,8 @@ async function renderCompanies() {
         ${state.companies.map(c => `<tr>
           <td>${esc(c.legal_name)}</td><td>${esc(c.nif || '—')}</td>
           <td>${c.is_vat_non_recoverable ? 'Non récupérable' : 'Récupérable'}</td>
-          <td><button class="danger" onclick="deleteCompany('${c.id}')">Supprimer</button></td>
+          <td><button class="outline" onclick='editCompany(${JSON.stringify(c).replace(/'/g, "&#39;")})'>Modifier</button>
+              <button class="danger" onclick="deleteCompany('${c.id}')">Supprimer</button></td>
         </tr>`).join('')}
       </tbody></table>
     </div>
@@ -175,17 +180,33 @@ async function renderCompanies() {
   document.getElementById('companyForm').addEventListener('submit', async (e) => {
     e.preventDefault();
     const fd = new FormData(e.target);
+    const id = fd.get('id');
+    const body = {
+      legalName: fd.get('legalName'), nif: fd.get('nif'), address: fd.get('address'),
+      activity: fd.get('activity'), isVatNonRecoverable: fd.get('isVatNonRecoverable') === 'on'
+    };
     try {
-      await api('/api/companies', { method: 'POST', body: {
-        legalName: fd.get('legalName'), nif: fd.get('nif'), address: fd.get('address'),
-        activity: fd.get('activity'), isVatNonRecoverable: fd.get('isVatNonRecoverable') === 'on'
-      }});
-      toast('Entreprise créée.', 'success');
+      if (id) { await api(`/api/companies/${id}`, { method: 'PUT', body }); toast('Entreprise modifiée.', 'success'); }
+      else { await api('/api/companies', { method: 'POST', body }); toast('Entreprise créée.', 'success'); }
       await refreshCompanies();
       render();
     } catch (err) { toast(err.message, 'error'); }
   });
 }
+
+function editCompany(c) {
+  const f = document.getElementById('companyForm');
+  f.id.value = c.id; f.legalName.value = c.legal_name; f.nif.value = c.nif || '';
+  f.address.value = c.address || ''; f.activity.value = c.activity || '';
+  f.isVatNonRecoverable.checked = !!c.is_vat_non_recoverable;
+  document.getElementById('companyFormTitle').textContent = `Modifier : ${c.legal_name}`;
+  document.getElementById('companyFormSubmit').textContent = 'Enregistrer les modifications';
+  document.getElementById('companyFormCancel').style.display = 'inline-block';
+  window.scrollTo(0, 0);
+}
+
+function resetCompanyForm() { render(); }
+
 
 async function deleteCompany(id) {
   if (!confirm('Supprimer cette entreprise et toutes ses données (produits, dossiers) ?')) return;
@@ -205,8 +226,9 @@ async function renderProducts() {
     <h1>Catalogue Produits</h1>
     <div class="subtitle">${esc(currentCompany()?.legal_name)}</div>
     <div class="card">
-      <h2>Ajouter un produit</h2>
+      <h2 id="productFormTitle">Ajouter un produit</h2>
       <form id="productForm">
+        <input type="hidden" name="id" value="" />
         <div class="grid grid-3">
           <div><label>Référence *</label><input name="reference" required /></div>
           <div><label>Désignation *</label><input name="designation" required /></div>
@@ -216,26 +238,45 @@ async function renderProducts() {
           <div><label>Prix unitaire par défaut</label><input name="defaultUnitPrice" type="number" step="0.01" /></div>
           <div><label>Devise</label><input name="currencyCode" placeholder="EUR" /></div>
         </div>
-        <button type="submit">Ajouter</button>
+        <div class="actions-row">
+          <button type="submit" id="productFormSubmit">Ajouter</button>
+          <button type="button" class="secondary" id="productFormCancel" style="display:none;" onclick="render()">Annuler la modification</button>
+        </div>
       </form>
     </div>
     <div class="card">
       <h2>Produits enregistrés (${products.length})</h2>
       ${products.length ? `<table><thead><tr><th>Référence</th><th>Désignation</th><th>Code SH</th><th>Origine</th><th></th></tr></thead><tbody>
         ${products.map(p => `<tr><td>${esc(p.reference)}</td><td>${esc(p.designation)}</td><td>${esc(p.hs_code10 || '—')}</td><td>${esc(p.origin_country_iso2 || '—')}</td>
-        <td><button class="danger" onclick="deleteProduct('${p.id}')">Suppr.</button></td></tr>`).join('')}
+        <td><button class="outline" onclick='editProduct(${JSON.stringify(p).replace(/'/g, "&#39;")})'>Modifier</button>
+            <button class="danger" onclick="deleteProduct('${p.id}')">Suppr.</button></td></tr>`).join('')}
       </tbody></table>` : '<p class="muted">Aucun produit. Les produits sont aussi créés automatiquement lors de l\'import Excel.</p>'}
     </div>
   `;
   document.getElementById('productForm').addEventListener('submit', async (e) => {
     e.preventDefault();
     const fd = new FormData(e.target);
+    const id = fd.get('id');
+    const body = Object.fromEntries(fd.entries());
+    delete body.id;
     try {
-      await api(`/api/companies/${state.currentCompanyId}/products`, { method: 'POST', body: Object.fromEntries(fd.entries()) });
-      toast('Produit ajouté.', 'success');
+      if (id) { await api(`/api/products/${id}`, { method: 'PUT', body }); toast('Produit modifié.', 'success'); }
+      else { await api(`/api/companies/${state.currentCompanyId}/products`, { method: 'POST', body }); toast('Produit ajouté.', 'success'); }
       render();
     } catch (err) { toast(err.message, 'error'); }
   });
+}
+
+function editProduct(p) {
+  const f = document.getElementById('productForm');
+  f.id.value = p.id; f.reference.value = p.reference; f.reference.disabled = true;
+  f.designation.value = p.designation; f.hsCode10.value = p.hs_code10 || '';
+  f.originCountryIso2.value = p.origin_country_iso2 || ''; f.unit.value = p.unit || '';
+  f.defaultUnitPrice.value = p.default_unit_price || ''; f.currencyCode.value = p.currency_code || '';
+  document.getElementById('productFormTitle').textContent = `Modifier : ${p.reference}`;
+  document.getElementById('productFormSubmit').textContent = 'Enregistrer les modifications';
+  document.getElementById('productFormCancel').style.display = 'inline-block';
+  window.scrollTo(0, 0);
 }
 
 async function deleteProduct(id) {
@@ -388,8 +429,9 @@ function renderHeaderSection(op) {
 function renderLinesSection(op, lines) {
   return `
     <div class="card">
-      <h2>Ajouter un article manuellement</h2>
+      <h2 id="lineFormTitle">Ajouter un article manuellement</h2>
       <form id="lineForm">
+        <input type="hidden" name="id" value="" />
         <div class="grid grid-4">
           <div><label>Référence *</label><input name="reference" required /></div>
           <div><label>Désignation *</label><input name="designation" required /></div>
@@ -402,7 +444,10 @@ function renderLinesSection(op, lines) {
           <div><label>Poids (kg)</label><input name="weight" type="number" step="0.01" /></div>
           <div><label>Volume (m³)</label><input name="volume" type="number" step="0.001" /></div>
         </div>
-        <button type="submit">Ajouter l'article</button>
+        <div class="actions-row">
+          <button type="submit" id="lineFormSubmit">Ajouter l'article</button>
+          <button type="button" class="secondary" id="lineFormCancel" style="display:none;" onclick="render()">Annuler la modification</button>
+        </div>
       </form>
     </div>
     <div class="card">
@@ -416,12 +461,25 @@ function renderLinesSection(op, lines) {
           <td>${esc(l.origin_country_iso2 || '—')}</td>
           <td>
             <button onclick="proposeHsForLine('${l.id}')">IA Code SH</button>
+            <button class="outline" onclick='editLine(${JSON.stringify(l).replace(/'/g, "&#39;")})'>Modifier</button>
             <button class="danger" onclick="deleteLine('${l.id}')">Suppr.</button>
           </td>
         </tr>`).join('')}
       </tbody></table>` : `<p class="muted">Aucun article. Ajoutez-en manuellement ci-dessus ou utilisez l'étape "3. Import Excel".</p>`}
     </div>
   `;
+}
+
+function editLine(l) {
+  const f = document.getElementById('lineForm');
+  f.id.value = l.id; f.reference.value = l.product_reference; f.designation.value = l.designation;
+  f.quantity.value = l.quantity; f.unitPrice.value = l.unit_purchase_price; f.currencyCode.value = l.currency_code;
+  f.hsCode10.value = l.hs_code10 || ''; f.originCountryIso2.value = l.origin_country_iso2 || '';
+  f.dutyRate.value = l.excel_duty_rate_percent ?? ''; f.weight.value = l.weight_kg ?? ''; f.volume.value = l.volume_m3 ?? '';
+  document.getElementById('lineFormTitle').textContent = `Modifier l'article : ${l.product_reference}`;
+  document.getElementById('lineFormSubmit').textContent = 'Enregistrer les modifications';
+  document.getElementById('lineFormCancel').style.display = 'inline-block';
+  window.scrollTo(0, 0);
 }
 
 function hsStatusBadge(l) {
@@ -477,8 +535,9 @@ function renderFeesSection(op, fees) {
   const categories = window.__feeCatalog || [];
   return `
     <div class="card">
-      <h2>Ajouter un frais d'importation</h2>
+      <h2 id="feeFormTitle">Ajouter un frais d'importation</h2>
       <form id="feeForm">
+        <input type="hidden" name="id" value="" />
         <div class="grid grid-4">
           <div><label>Libellé *</label><input name="feeName" required /></div>
           <div><label>Catégorie</label>
@@ -500,7 +559,10 @@ function renderFeesSection(op, fees) {
           <div><label><input type="checkbox" name="includeInCustomsValue" style="width:auto;display:inline-block;margin-right:6px;" />Inclus dans la valeur en douane</label></div>
           <div><label><input type="checkbox" name="includeInCostOfGoods" checked style="width:auto;display:inline-block;margin-right:6px;" />Inclus dans le coût de revient</label></div>
         </div>
-        <button type="submit">Ajouter le frais</button>
+        <div class="actions-row">
+          <button type="submit" id="feeFormSubmit">Ajouter le frais</button>
+          <button type="button" class="secondary" id="feeFormCancel" style="display:none;" onclick="render()">Annuler la modification</button>
+        </div>
       </form>
     </div>
     <div class="card">
@@ -509,11 +571,23 @@ function renderFeesSection(op, fees) {
         ${fees.map(f => `<tr>
           <td>${esc(f.fee_name)}</td><td>${esc(f.category_code)}</td><td>${f.amount}</td><td>${esc(f.currency_code)}</td>
           <td>${esc(f.allocation_method)}</td><td>${f.include_in_customs_value ? 'OUI' : 'NON'}</td><td>${f.include_in_cost_of_goods ? 'OUI' : 'NON'}</td>
-          <td><button class="danger" onclick="deleteFee('${f.id}')">Suppr.</button></td>
+          <td><button class="outline" onclick='editFee(${JSON.stringify(f).replace(/'/g, "&#39;")})'>Modifier</button>
+              <button class="danger" onclick="deleteFee('${f.id}')">Suppr.</button></td>
         </tr>`).join('')}
       </tbody></table>` : '<p class="muted">Aucun frais renseigné (fret, assurance, port, transit, etc.).</p>'}
     </div>
   `;
+}
+
+function editFee(f) {
+  const form = document.getElementById('feeForm');
+  form.id.value = f.id; form.feeName.value = f.fee_name; form.categoryCode.value = f.category_code;
+  form.amount.value = f.amount; form.currencyCode.value = f.currency_code; form.allocationMethod.value = f.allocation_method;
+  form.includeInCustomsValue.checked = !!f.include_in_customs_value; form.includeInCostOfGoods.checked = !!f.include_in_cost_of_goods;
+  document.getElementById('feeFormTitle').textContent = `Modifier le frais : ${f.fee_name}`;
+  document.getElementById('feeFormSubmit').textContent = 'Enregistrer les modifications';
+  document.getElementById('feeFormCancel').style.display = 'inline-block';
+  window.scrollTo(0, 0);
 }
 
 async function deleteFee(id) {
@@ -533,6 +607,72 @@ function renderCalcSection(op, lines, fees, company, lastSnapshot) {
       ${result ? `<span class="muted"> Dernier calcul : ${new Date(lastSnapshot.executed_at).toLocaleString('fr-FR')}</span>` : ''}
     </div>
     <div id="calcResultZone">${result ? renderCalcResult(result, op, company) : '<p class="muted">Aucun calcul effectué pour l\'instant.</p>'}</div>
+  `;
+}
+
+function toggleLineDetail(i) {
+  const row = document.getElementById(`lineDetail-${i}`);
+  if (row) row.style.display = row.style.display === 'none' ? 'table-row' : 'none';
+}
+
+// Détail pédagogique et traçable de la formation du montant final d'un article :
+// Prix fournisseur -> conversion en DZD -> répartition des frais -> valeur en douane ->
+// droits de douane -> taxes additionnelles -> TVA -> coût de revient unitaire, avec la
+// base légale de chaque taux appliqué (jamais un chiffre nu sans source réglementaire).
+function renderLineDetail(l) {
+  const co = l.customsOutcome, eo = l.economicOutcome;
+  const feesRows = (l.feeAllocations || []).map(f => `<tr>
+      <td>${esc(f.feeName)}</td><td>${money(f.allocatedAmountDzd)} DZD</td>
+      <td>${f.includedInCustomsValue ? 'Valeur en douane' : 'Coût de revient uniquement'}</td>
+    </tr>`).join('') || '<tr><td colspan="3" class="muted">Aucun frais réparti sur cet article.</td></tr>';
+  const taxRows = (co.additionalTaxes || []).map(t => `<tr>
+      <td>${esc(t.taxNameFr)} (${esc(t.taxCode)})</td><td>${money(t.taxableBaseDzd)} DZD</td>
+      <td>${t.ratePercent}%</td><td>${money(t.taxAmountDzd)} DZD</td>
+      <td class="muted">${esc(t.legalArticleReference || '—')} ${esc(t.joraReference ? '(' + t.joraReference + ')' : '')} — v.${esc(t.regulatoryVersionCode || '')}</td>
+    </tr>`).join('') || '<tr><td colspan="5" class="muted">Aucune taxe additionnelle (DAPS/TIC…) applicable trouvée pour ce Code SH.</td></tr>';
+  return `
+    <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:12px;">
+      <h4>1. Valeur fournisseur et conversion</h4>
+      <table><tbody>
+        <tr><td>Montant fournisseur (devise ligne)</td><td>${l.quantity} × prix unitaire = ${money(l.purchaseValueDzd / (l.appliedExchangeRateToDzd || 1))} ${esc(l.currencyCode)}</td></tr>
+        <tr><td>Taux de change appliqué vers DZD</td><td>${l.appliedExchangeRateToDzd ?? 'N/D'}</td></tr>
+        <tr><td><b>Montant fournisseur converti</b></td><td><b>${money(l.purchaseValueDzd)} DZD</b></td></tr>
+      </tbody></table>
+      <h4>2. Frais répartis sur cet article</h4>
+      <table><thead><tr><th>Frais</th><th>Part allouée</th><th>Affectation</th></tr></thead><tbody>${feesRows}</tbody></table>
+      <h4>3. Valeur en douane (Art. 16 bis/ter/octies Code des Douanes)</h4>
+      <table><tbody>
+        <tr><td>Montant fournisseur converti</td><td>${money(l.purchaseValueDzd)} DZD</td></tr>
+        <tr><td>+ Frais inclus dans la valeur en douane</td><td>${money(eo.allocatedCustomsIncludedFeesDzd)} DZD</td></tr>
+        <tr><td><b>= Valeur en douane</b></td><td><b>${money(co.customsValueDzd)} DZD</b></td></tr>
+      </tbody></table>
+      <h4>4. Droit de Douane (DD)</h4>
+      <table><tbody>
+        <tr><td>Taux appliqué</td><td>${co.customsDutyRatePercent !== null ? co.customsDutyRatePercent + '%' : 'INFORMATION NON DÉTERMINÉE'}</td></tr>
+        <tr><td>Base légale</td><td class="muted">${esc(co.ddSource || '—')}</td></tr>
+        <tr><td>Taux Excel fourni (si présent)</td><td>${co.excelDutyRatePercent ?? '—'}</td></tr>
+        <tr><td><b>= Montant DD</b></td><td><b>${money(co.customsDutyAmountDzd)} DZD</b></td></tr>
+      </tbody></table>
+      <h4>5. Taxes additionnelles (DAPS, TIC…)</h4>
+      <table><thead><tr><th>Taxe</th><th>Base</th><th>Taux</th><th>Montant</th><th>Source légale</th></tr></thead><tbody>${taxRows}</tbody></table>
+      <h4>6. TVA à l'importation (Art. 19, 21, 23 CTCA)</h4>
+      <table><tbody>
+        <tr><td>Base imposable (VD + DD + autres taxes)</td><td>${money(co.vatTaxableBaseDzd)} DZD</td></tr>
+        <tr><td>Taux TVA</td><td>${co.vatRatePercent !== null ? co.vatRatePercent + '%' : 'INFORMATION NON DÉTERMINÉE'}</td></tr>
+        <tr><td><b>= Montant TVA</b></td><td><b>${money(co.importVatAmountDzd)} DZD</b></td></tr>
+      </tbody></table>
+      <h4>7. Coût de revient économique (SCF, Art. 121-3 &amp; 123-1)</h4>
+      <table><tbody>
+        <tr><td>Montant fournisseur converti</td><td>${money(eo.purchaseValueDzd)} DZD</td></tr>
+        <tr><td>+ Frais inclus dans la valeur en douane</td><td>${money(eo.allocatedCustomsIncludedFeesDzd)} DZD</td></tr>
+        <tr><td>+ Frais locaux / post-douane</td><td>${money(eo.allocatedLocalAndPostCustomsFeesDzd)} DZD</td></tr>
+        <tr><td>+ Droit de Douane</td><td>${money(co.customsDutyAmountDzd)} DZD</td></tr>
+        <tr><td>+ Taxes additionnelles</td><td>${money(co.totalAdditionalTaxesDzd)} DZD</td></tr>
+        <tr><td>+ TVA ${eo.vatIncludedInCost ? '(non récupérable, incluse)' : '(récupérable, exclue)'}</td><td>${eo.vatIncludedInCost ? money(co.importVatAmountDzd) + ' DZD' : '0.00 DZD (exclue par régime TVA de l entreprise)'}</td></tr>
+        <tr><td><b>= Coût de revient total de l'article</b></td><td><b>${money(eo.realCostOfGoodsTotalDzd)} DZD</b></td></tr>
+        <tr><td><b>= Coût de revient unitaire (÷ ${l.quantity})</b></td><td><b>${money(eo.unitCostOfGoodsDzd)} DZD</b></td></tr>
+      </tbody></table>
+    </div>
   `;
 }
 
@@ -569,8 +709,9 @@ function renderCalcResult(result, op, company) {
     </div>
     <div class="card">
       <h2>Détail par article</h2>
-      <table><thead><tr><th>Réf.</th><th>Désignation</th><th>Qté</th><th>Val. Douane</th><th>DD</th><th>Taxes</th><th>TVA</th><th>Coût total</th><th>Coût unitaire</th></tr></thead><tbody>
-        ${s.lineResults.map(l => `<tr>
+      <p class="muted">Cliquez sur « Voir le détail » pour comprendre comment chaque montant final a été obtenu (frais répartis, taux appliqués, base légale).</p>
+      <table><thead><tr><th>Réf.</th><th>Désignation</th><th>Qté</th><th>Val. Douane</th><th>DD</th><th>Taxes</th><th>TVA</th><th>Coût total</th><th>Coût unitaire</th><th></th></tr></thead><tbody>
+        ${s.lineResults.map((l, i) => `<tr>
           <td>${esc(l.productReference)}</td><td>${esc(l.designation)}</td><td>${l.quantity}</td>
           <td>${money(l.customsOutcome.customsValueDzd)}</td>
           <td>${money(l.customsOutcome.customsDutyAmountDzd)} (${l.customsOutcome.customsDutyRatePercent ?? 'N/D'}%)</td>
@@ -578,7 +719,9 @@ function renderCalcResult(result, op, company) {
           <td>${money(l.customsOutcome.importVatAmountDzd)} (${l.customsOutcome.vatRatePercent ?? 'N/D'}%)</td>
           <td>${money(l.economicOutcome.realCostOfGoodsTotalDzd)}</td>
           <td><b>${money(l.economicOutcome.unitCostOfGoodsDzd)}</b></td>
-        </tr>`).join('')}
+          <td><button class="outline" onclick="toggleLineDetail(${i})">Voir le détail</button></td>
+        </tr>
+        <tr id="lineDetail-${i}" style="display:none;"><td colspan="10">${renderLineDetail(l)}</td></tr>`).join('')}
       </tbody></table>
     </div>
     <div class="card">
@@ -602,21 +745,29 @@ function wireImportSectionEvents(op, lines, fees) {
   if (lineForm) lineForm.addEventListener('submit', async (e) => {
     e.preventDefault();
     const fd = Object.fromEntries(new FormData(e.target).entries());
-    try { await api(`/api/imports/${op.id}/lines`, { method: 'POST', body: fd }); toast('Article ajouté.', 'success'); render(); }
-    catch (err) { toast(err.message, 'error'); }
+    const id = fd.id; delete fd.id;
+    try {
+      if (id) { await api(`/api/lines/${id}`, { method: 'PUT', body: fd }); toast('Article modifié.', 'success'); }
+      else { await api(`/api/imports/${op.id}/lines`, { method: 'POST', body: fd }); toast('Article ajouté.', 'success'); }
+      render();
+    } catch (err) { toast(err.message, 'error'); }
   });
 
   const feeForm = document.getElementById('feeForm');
   if (feeForm) feeForm.addEventListener('submit', async (e) => {
     e.preventDefault();
     const fd = new FormData(e.target);
+    const id = fd.get('id');
     const body = {
       feeName: fd.get('feeName'), categoryCode: fd.get('categoryCode'), amount: Number(fd.get('amount')),
       currencyCode: fd.get('currencyCode'), allocationMethod: fd.get('allocationMethod'),
       includeInCustomsValue: fd.get('includeInCustomsValue') === 'on', includeInCostOfGoods: fd.get('includeInCostOfGoods') === 'on'
     };
-    try { await api(`/api/imports/${op.id}/fees`, { method: 'POST', body }); toast('Frais ajouté.', 'success'); render(); }
-    catch (err) { toast(err.message, 'error'); }
+    try {
+      if (id) { await api(`/api/fees/${id}`, { method: 'PUT', body }); toast('Frais modifié.', 'success'); }
+      else { await api(`/api/imports/${op.id}/fees`, { method: 'POST', body }); toast('Frais ajouté.', 'success'); }
+      render();
+    } catch (err) { toast(err.message, 'error'); }
   });
 
   const runCalcBtn = document.getElementById('runCalcBtn');
