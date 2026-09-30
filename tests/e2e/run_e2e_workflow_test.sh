@@ -35,7 +35,10 @@ COMPANY_ID=$(curl -s -X POST "$BASE/api/companies" -H "Content-Type: application
 # 2. Créer un dossier d'importation (Incoterm FOB)
 # NB: la devise principale du dossier est volontairement fixée à une devise fictive à usage unique
 # (jamais publiée) afin de garantir un test de blocage indépendant de l'état d'exécutions précédentes.
-FAKE_CCY="Z$(date +%s | tail -c 3)"
+# Forte entropie (timestamp nanosecondes + PID + aléatoire) pour garantir l'unicité même en cas
+# d'exécutions répétées très rapprochées du script (aucune collision avec une devise déjà publiée
+# par une exécution précédente, ce qui fausserait le test de blocage ci-dessous).
+FAKE_CCY="Z$(( (RANDOM * RANDOM + $$ + $(date +%s%N)) % 900000 + 100000 ))"
 IMPORT_ID=$(curl -s -X POST "$BASE/api/companies/$COMPANY_ID/imports" -H "Content-Type: application/json" -d "{
   \"importNumber\":\"E2E-TEST-0001\",\"referenceDate\":\"2026-09-15\",\"supplierName\":\"E2E SUPPLIER\",
   \"exportShippingCountryIso2\":\"CN\",\"defaultOriginCountryIso2\":\"CN\",\"mainCurrencyCode\":\"$FAKE_CCY\",\"incoterm\":\"FOB\"
@@ -152,7 +155,33 @@ curl -s -X POST "$BASE/api/regulatory/rules" -H "Content-Type: application/json"
 DIFF_COUNT=$(curl -s "$BASE/api/regulatory/rules/history/8708999000/DD" | python3 -c "import sys,json;print(len(json.load(sys.stdin)['data']['diffs']))")
 [ "$DIFF_COUNT" -ge "1" ] && pass "Historique des versions réglementaires disponible ($DIFF_COUNT écart(s))" || fail "Aucun écart d'historique détecté"
 
-# 15. Nettoyage des données de test
+# 15. Confirmation manuelle tracée du taux Excel en l'absence de toute règle officielle (Section 12)
+# Réalisé dans un dossier dédié et isolé, pour ne pas être bloqué par les lignes d'autres étapes du test.
+DD_IMPORT_ID=$(curl -s -X POST "$BASE/api/companies/$COMPANY_ID/imports" -H "Content-Type: application/json" -d "{
+  \"importNumber\":\"E2E-DD-CONFIRM\",\"referenceDate\":\"2026-09-15\",\"supplierName\":\"E2E SUPPLIER\",
+  \"exportShippingCountryIso2\":\"CN\",\"mainCurrencyCode\":\"$FAKE_CCY\",\"incoterm\":\"FOB\"
+}" | python3 -c "import sys,json;print(json.load(sys.stdin)['data']['id'])")
+FAKE_HS="99$(date +%s | tail -c 9)"
+DD_LINE_ID=$(curl -s -X POST "$BASE/api/imports/$DD_IMPORT_ID/lines" -H "Content-Type: application/json" -d "{
+  \"reference\":\"DD-CONFIRM-TEST\",\"designation\":\"Article sans règle\",\"quantity\":1,\"unitPrice\":100,
+  \"currencyCode\":\"$FAKE_CCY\",\"hsCode10\":\"$FAKE_HS\",\"dutyRate\":12
+}" | python3 -c "import sys,json;print(json.load(sys.stdin)['data']['id'])")
+BLOCKED3=$(curl -s -X POST "$BASE/api/imports/$DD_IMPORT_ID/calculate" | python3 -c "import sys,json;print(json.load(sys.stdin)['data']['blocked'])")
+[ "$BLOCKED3" = "True" ] && pass "Calcul bloqué tant que le taux Excel n'est pas confirmé (aucune règle officielle)" || fail "Le calcul aurait dû rester bloqué sans confirmation ni règle"
+curl -s -X POST "$BASE/api/lines/$DD_LINE_ID/confirm-excel-duty-rate" -H "X-User-Id: $ADMIN_ID" -d '{}' -H "Content-Type: application/json" > /dev/null
+curl -s -X POST "$BASE/api/regulatory/rules" -H "Content-Type: application/json" -H "X-User-Id: $ADMIN_ID" -d "{
+  \"taxCode\":\"TVA\",\"hsCode10\":\"$FAKE_HS\",\"ratePercent\":19,\"validFrom\":\"2026-01-01\",
+  \"legalSourceTitle\":\"E2E TEST\",\"calculationBase\":\"VALEUR_DOUANE_PLUS_DD\"
+}" > /dev/null
+CONFIRM_RESULT=$(curl -s -X POST "$BASE/api/imports/$DD_IMPORT_ID/calculate")
+UNOFFICIAL=$(echo "$CONFIRM_RESULT" | python3 -c "
+import sys,json
+d=json.load(sys.stdin)['data']
+print(any(a['code']=='DUTY_RATE_UNOFFICIAL_CONFIRMED' for a in d.get('anomalies',[])))
+")
+[ "$UNOFFICIAL" = "True" ] && pass "Taux Excel confirmé manuellement utilisé avec avertissement tracé (aucun taux inventé)" || fail "La confirmation manuelle du taux Excel n'a pas produit l'avertissement attendu"
+
+# 16. Nettoyage des données de test
 curl -s -X DELETE "$BASE/api/companies/$COMPANY_ID" > /dev/null
 pass "Nettoyage des données de test"
 

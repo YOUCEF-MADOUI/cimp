@@ -204,16 +204,32 @@ function runFullCalculation(operation, lines, fees, company) {
     // Droit de Douane (DD)
     const ddRule = reg.findApplicableRule('DD', hs, origin, 'DROIT_COMMUN_4000', referenceDateIso);
     let customsDutyRatePercent = null, customsDutyAmountDzd = 0, ddSource = null;
+    const hasExcelRate = l.excel_duty_rate_percent !== null && l.excel_duty_rate_percent !== undefined;
+    const excelRateConfirmed = hasExcelRate && !!l.excel_duty_rate_confirmed_by;
+
     if (ddRule.found) {
+      // Priorité absolue à la règle réglementaire officielle si elle existe (Section 12).
       customsDutyRatePercent = ddRule.rule.rate_percent;
       customsDutyAmountDzd = round2(customsValueDzd * customsDutyRatePercent / 100);
       ddSource = `${ddRule.rule.legal_source_title}${ddRule.rule.article_reference ? ' — ' + ddRule.rule.article_reference : ''}`;
+    } else if (excelRateConfirmed) {
+      // Aucune règle officielle trouvée : le taux fourni par le document fournisseur n'est utilisé
+      // que si l'utilisateur l'a explicitement confirmé en connaissance de cause (jamais par défaut,
+      // jamais silencieusement) — reste un AVERTISSEMENT fort, jamais un simple INFO.
+      customsDutyRatePercent = Number(l.excel_duty_rate_percent);
+      customsDutyAmountDzd = round2(customsValueDzd * customsDutyRatePercent / 100);
+      ddSource = `Taux NON RÉGLEMENTAIRE fourni par le document fournisseur — confirmé manuellement par ${l.excel_duty_rate_confirmed_by} le ${l.excel_duty_rate_confirmed_at ? l.excel_duty_rate_confirmed_at.slice(0, 10) : ''} (aucune règle officielle publiée à ce jour)`;
+      anomalies.push({ severity: SEVERITY.AVERTISSEMENT, code: 'DUTY_RATE_UNOFFICIAL_CONFIRMED', lineNumber: l.line_number, message: `Ligne ${l.line_number} (${l.product_reference}) : calcul effectué avec le taux Excel (${customsDutyRatePercent}%) confirmé manuellement par ${l.excel_duty_rate_confirmed_by}, en l'absence de règle réglementaire officielle publiée. Ce taux doit être validé par un Administrateur dès que possible.` });
     } else {
-      anomalies.push({ severity: SEVERITY.BLOCAGE, code: 'DD_RULE_NOT_FOUND', lineNumber: l.line_number, message: `Ligne ${l.line_number} (${l.product_reference}, SH ${l.hs_code10}) : ${ddRule.detail}` });
+      anomalies.push({
+        severity: SEVERITY.BLOCAGE, code: 'DD_RULE_NOT_FOUND', lineNumber: l.line_number,
+        message: `Ligne ${l.line_number} (${l.product_reference}, SH ${l.hs_code10}) : ${ddRule.detail}` +
+          (hasExcelRate ? ` Un taux Excel (${l.excel_duty_rate_percent}%) est disponible : confirmez explicitement son utilisation provisoire depuis l'écran de l'article, ou demandez à un Administrateur de publier la règle officielle.` : '')
+      });
     }
 
     // Comparaison Taux Excel vs Réglementaire (Section 20)
-    if (l.excel_duty_rate_percent !== null && l.excel_duty_rate_percent !== undefined && customsDutyRatePercent !== null) {
+    if (hasExcelRate && ddRule.found) {
       if (Math.abs(Number(l.excel_duty_rate_percent) - customsDutyRatePercent) > 0.0001) {
         anomalies.push({
           severity: SEVERITY.AVERTISSEMENT, code: 'DUTY_RATE_MISMATCH', lineNumber: l.line_number,
@@ -221,7 +237,7 @@ function runFullCalculation(operation, lines, fees, company) {
           expectedValue: `${customsDutyRatePercent}%`, actualValue: `${l.excel_duty_rate_percent}%`
         });
       }
-    } else if (l.excel_duty_rate_percent !== null && l.excel_duty_rate_percent !== undefined && customsDutyRatePercent === null) {
+    } else if (hasExcelRate && !ddRule.found && !excelRateConfirmed) {
       anomalies.push({ severity: SEVERITY.AVERTISSEMENT, code: 'DUTY_RATE_NO_REG_REFERENCE', lineNumber: l.line_number, message: `Ligne ${l.line_number} : aucune règle réglementaire trouvée pour confirmer/infirmer le taux Excel (${l.excel_duty_rate_percent}%). Confirmation utilisateur requise avant utilisation de ce taux.` });
     }
 

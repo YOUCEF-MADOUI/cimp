@@ -318,15 +318,40 @@ app.put('/api/lines/:id', (req, res) => {
   const existing = db.prepare('SELECT * FROM import_lines WHERE id = ?').get(req.params.id);
   if (!existing) return fail(res, 404, 'Ligne introuvable.');
   const b = req.body || {};
+  const newDutyRate = b.dutyRate ?? existing.excel_duty_rate_percent;
+  // Si le taux Excel change, toute confirmation manuelle antérieure est invalidée : l'utilisateur
+  // doit reconfirmer explicitement le nouveau taux (jamais de report silencieux d'une confirmation).
+  const dutyRateChanged = b.dutyRate !== undefined && String(b.dutyRate) !== String(existing.excel_duty_rate_percent);
   db.prepare(`UPDATE import_lines SET product_reference=?, designation=?, quantity=?, unit_purchase_price=?, currency_code=?,
-      hs_code10=?, hs_code_status=?, origin_country_iso2=?, excel_duty_rate_percent=?, weight_kg=?, volume_m3=? WHERE id=?`)
+      hs_code10=?, hs_code_status=?, origin_country_iso2=?, excel_duty_rate_percent=?, weight_kg=?, volume_m3=?,
+      excel_duty_rate_confirmed_by=?, excel_duty_rate_confirmed_at=? WHERE id=?`)
     .run(
       b.reference ?? existing.product_reference, b.designation ?? existing.designation, b.quantity ?? existing.quantity,
       b.unitPrice ?? existing.unit_purchase_price, b.currencyCode ?? existing.currency_code, b.hsCode10 ?? existing.hs_code10,
       b.hsCode10 ? 'CONFIRME_MANUEL' : existing.hs_code_status, b.originCountryIso2 ?? existing.origin_country_iso2,
-      b.dutyRate ?? existing.excel_duty_rate_percent, b.weight ?? existing.weight_kg, b.volume ?? existing.volume_m3, req.params.id
+      newDutyRate, b.weight ?? existing.weight_kg, b.volume ?? existing.volume_m3,
+      dutyRateChanged ? null : existing.excel_duty_rate_confirmed_by, dutyRateChanged ? null : existing.excel_duty_rate_confirmed_at,
+      req.params.id
     );
   logAudit('import_line', req.params.id, 'UPDATED', b);
+  ok(res, db.prepare('SELECT * FROM import_lines WHERE id = ?').get(req.params.id));
+});
+
+// Confirmation explicite et tracée d'utilisation provisoire du taux de droit de douane fourni par
+// le document fournisseur (Excel), uniquement possible quand aucune règle réglementaire officielle
+// n'a été trouvée pour ce Code SH (Section 12). Ne rend jamais ce taux "officiel" : reste marqué et
+// signalé comme AVERTISSEMENT dans tout calcul et tout export tant qu'aucune règle n'est publiée.
+app.post('/api/lines/:id/confirm-excel-duty-rate', (req, res) => {
+  const user = resolveActingUser(req);
+  if (!user) return fail(res, 403, "Utilisateur non identifié. Sélectionnez votre profil utilisateur avant de confirmer un taux.");
+  const line = db.prepare('SELECT * FROM import_lines WHERE id = ?').get(req.params.id);
+  if (!line) return fail(res, 404, 'Ligne introuvable.');
+  if (line.excel_duty_rate_percent === null || line.excel_duty_rate_percent === undefined) {
+    return fail(res, 400, "Aucun taux Excel n'est renseigné sur cette ligne : rien à confirmer.");
+  }
+  db.prepare('UPDATE import_lines SET excel_duty_rate_confirmed_by=?, excel_duty_rate_confirmed_at=? WHERE id=?')
+    .run(user.full_name, nowIso(), req.params.id);
+  logAudit('import_line', req.params.id, 'EXCEL_DUTY_RATE_CONFIRMED', { rate: line.excel_duty_rate_percent, by: user.full_name });
   ok(res, db.prepare('SELECT * FROM import_lines WHERE id = ?').get(req.params.id));
 });
 

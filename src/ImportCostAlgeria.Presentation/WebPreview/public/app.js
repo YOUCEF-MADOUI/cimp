@@ -479,13 +479,14 @@ function renderLinesSection(op, lines) {
     </div>
     <div class="card">
       <h2>Articles du dossier (${lines.length})</h2>
-      ${lines.length ? `<table><thead><tr><th>#</th><th>Réf.</th><th>Désignation</th><th>Qté</th><th>PU</th><th>Devise</th><th>Code SH</th><th>Statut SH</th><th>Origine</th><th></th></tr></thead><tbody>
+      ${lines.length ? `<table><thead><tr><th>#</th><th>Réf.</th><th>Désignation</th><th>Qté</th><th>PU</th><th>Devise</th><th>Code SH</th><th>Statut SH</th><th>Origine</th><th>Taux DD Excel</th><th></th></tr></thead><tbody>
         ${lines.map(l => `<tr>
           <td>${l.line_number}</td><td>${esc(l.product_reference)}</td><td>${esc(l.designation)}</td><td>${l.quantity}</td>
           <td>${l.unit_purchase_price}</td><td>${esc(l.currency_code)}</td>
           <td>${esc(l.hs_code10 || '<i>manquant</i>')}</td>
           <td>${hsStatusBadge(l)}</td>
           <td>${esc(l.origin_country_iso2 || '—')}</td>
+          <td>${dutyRateExcelBadge(l)}</td>
           <td>
             <button onclick="proposeHsForLine('${l.id}')">IA Code SH</button>
             <button class="outline" onclick='editLine(${JSON.stringify(l).replace(/'/g, "&#39;")})'>Modifier</button>
@@ -493,8 +494,25 @@ function renderLinesSection(op, lines) {
           </td>
         </tr>`).join('')}
       </tbody></table>` : `<p class="muted">Aucun article. Ajoutez-en manuellement ci-dessus ou utilisez l'étape "3. Import Excel".</p>`}
+      <p class="muted">« Taux DD Excel » : taux de droit de douane indiqué par le document fournisseur. Il est comparé au taux réglementaire officiel au calcul ; en l'absence de toute règle officielle, il peut être confirmé manuellement à titre provisoire (traçé, jamais silencieux).</p>
     </div>
   `;
+}
+
+function dutyRateExcelBadge(l) {
+  if (l.excel_duty_rate_percent === null || l.excel_duty_rate_percent === undefined) return '<span class="muted">—</span>';
+  if (l.excel_duty_rate_confirmed_by) {
+    return `<span class="pill ok">${l.excel_duty_rate_percent}% confirmé</span><br/><span class="muted" style="font-size:11px;">par ${esc(l.excel_duty_rate_confirmed_by)}</span>`;
+  }
+  return `${l.excel_duty_rate_percent}% <button class="outline" style="font-size:11px;padding:2px 6px;" onclick="confirmExcelDutyRate('${l.id}')">Confirmer (si aucune règle officielle)</button>`;
+}
+
+async function confirmExcelDutyRate(lineId) {
+  try {
+    await api(`/api/lines/${lineId}/confirm-excel-duty-rate`, { method: 'POST', body: {} });
+    toast('Taux Excel confirmé à titre provisoire (avertissement conservé au calcul).', 'success');
+    render();
+  } catch (err) { toast(err.message, 'error'); }
 }
 
 function editLine(l) {

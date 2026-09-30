@@ -185,6 +185,14 @@ ensureColumn('import_lines', 'hs_code_status', "TEXT NOT NULL DEFAULT 'NON_RENSE
 ensureColumn('import_lines', 'ai_proposed_hs_code10', 'TEXT');
 ensureColumn('import_operations', 'exchange_rate_mode', "TEXT NOT NULL DEFAULT 'AUTO'");
 ensureColumn('import_operations', 'manual_exchange_rate', 'REAL');
+// Confirmation explicite et tracée de l'utilisation du taux de droit de douane fourni par
+// l'Excel fournisseur lorsqu'aucune règle réglementaire n'a pu être trouvée du tout (Section 12
+// des exigences). Ce n'est jamais un taux "inventé" par le système : c'est un taux fourni par le
+// fournisseur/déclarant, que l'utilisateur choisit sciemment d'utiliser à titre provisoire, en
+// pleine connaissance de cause, en l'absence de règle officielle publiée. Reste un AVERTISSEMENT
+// fort (jamais un INFO) et est signalé comme tel dans les exports.
+ensureColumn('import_lines', 'excel_duty_rate_confirmed_by', 'TEXT');
+ensureColumn('import_lines', 'excel_duty_rate_confirmed_at', 'TEXT');
 
 function uuid() {
   return crypto.randomUUID();
