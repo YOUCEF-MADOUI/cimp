@@ -3,7 +3,9 @@
 
 const state = {
   companies: [],
+  users: [],
   currentCompanyId: localStorage.getItem('cimp_company_id') || null,
+  currentUserId: localStorage.getItem('cimp_user_id') || null,
   currentView: 'dashboard',
   currentImportId: null,
   importSection: 'header',
@@ -12,14 +14,17 @@ const state = {
 
 const $main = document.getElementById('main');
 const $companySelect = document.getElementById('companySelect');
+const $userSelect = document.getElementById('userSelect');
 
 // ---------------------------------------------------------------------------
 // UTILITAIRES
 // ---------------------------------------------------------------------------
 async function api(path, opts = {}) {
+  const headers = opts.body instanceof FormData ? {} : { 'Content-Type': 'application/json' };
+  if (state.currentUserId) headers['X-User-Id'] = state.currentUserId;
   const res = await fetch(path, {
     method: opts.method || 'GET',
-    headers: opts.body instanceof FormData ? undefined : { 'Content-Type': 'application/json' },
+    headers,
     body: opts.body instanceof FormData ? opts.body : (opts.body ? JSON.stringify(opts.body) : undefined)
   });
   const json = await res.json().catch(() => ({ success: false, error: 'Réponse serveur invalide.' }));
@@ -59,6 +64,11 @@ $companySelect.addEventListener('change', () => {
   render();
 });
 
+$userSelect.addEventListener('change', () => {
+  state.currentUserId = $userSelect.value || null;
+  localStorage.setItem('cimp_user_id', state.currentUserId || '');
+});
+
 async function refreshCompanies() {
   state.companies = await api('/api/companies');
   $companySelect.innerHTML = '<option value="">— Sélectionner —</option>' +
@@ -67,6 +77,22 @@ async function refreshCompanies() {
     state.currentCompanyId = state.companies[0].id;
     $companySelect.value = state.currentCompanyId;
   }
+}
+
+const ROLE_LABELS = { ADMINISTRATEUR: 'Administrateur', UTILISATEUR: 'Utilisateur', CONSULTATION: 'Consultation' };
+
+async function refreshUsers() {
+  state.users = await api('/api/users');
+  $userSelect.innerHTML = state.users.map(u => `<option value="${u.id}" ${u.id === state.currentUserId ? 'selected' : ''}>${esc(u.full_name)} (${ROLE_LABELS[u.role] || u.role})</option>`).join('');
+  if (!state.currentUserId && state.users.length) {
+    state.currentUserId = state.users[0].id;
+    localStorage.setItem('cimp_user_id', state.currentUserId);
+    $userSelect.value = state.currentUserId;
+  }
+}
+
+function currentUser() {
+  return state.users.find(u => u.id === state.currentUserId) || null;
 }
 
 function currentCompany() {
@@ -673,16 +699,34 @@ function renderExcelMappingStep(op) {
     uploadFd.append('saveAsTemplate', fd.get('saveAsTemplate') === 'on');
     try {
       const outcome = await api(`/api/imports/${op.id}/excel/confirm`, { method: 'POST', body: uploadFd });
+      state.__lastExcelOutcome = { outcome, companyId: op.company_id };
       document.getElementById('excelImportOutcome').innerHTML = `
         <div class="card">
           <h3>Résultat de l'import</h3>
-          <p><span class="pill ok">${outcome.insertedCount} ligne(s) importée(s)</span> ${outcome.errors.length ? `<span class="pill ERREUR">${outcome.errors.length} ligne(s) en erreur</span>` : ''}</p>
+          <p><span class="pill ok">${outcome.insertedCount} ligne(s) importée(s)</span>
+             <span class="pill INFO">${outcome.matchedCatalogCount} rapprochée(s) du catalogue produit</span>
+             ${outcome.errors.length ? `<span class="pill ERREUR">${outcome.errors.length} ligne(s) en erreur</span>` : ''}</p>
           ${outcome.errors.length ? `<ul>${outcome.errors.map(e => `<li>Ligne ${e.rowIndex} : ${e.errors.join(', ')}</li>`).join('')}</ul>` : ''}
+          ${outcome.newProductCandidates.length ? `
+            <div class="card" style="background:#f8fafc;">
+              <p>${outcome.newProductCandidates.length} nouvelle(s) référence(s) absente(s) du catalogue produit :
+                 ${outcome.newProductCandidates.map(p => esc(p.reference)).join(', ')}</p>
+              <button onclick="addCandidatesToCatalog()">Ajouter ces références au catalogue produit</button>
+            </div>` : ''}
           <button onclick="switchImportSection('lines')">Voir les articles importés →</button>
         </div>`;
       toast('Import Excel terminé.', 'success');
     } catch (err) { toast(err.message, 'error'); }
   });
+}
+
+async function addCandidatesToCatalog() {
+  const ctx = state.__lastExcelOutcome;
+  if (!ctx) return;
+  try {
+    const result = await api(`/api/companies/${ctx.companyId}/products/bulk`, { method: 'POST', body: { items: ctx.outcome.newProductCandidates } });
+    toast(`${result.created} produit(s) ajouté(s) au catalogue (${result.skipped} ignoré(s)).`, 'success');
+  } catch (err) { toast(err.message, 'error'); }
 }
 
 // ---------------------------------------------------------------------------
@@ -730,15 +774,17 @@ async function renderRegulatory() {
     </div>
     <div class="card">
       <h2>Règles publiées (${rules.length})</h2>
-      ${rules.length ? `<table><thead><tr><th>Taxe</th><th>Code SH</th><th>Origine</th><th>Taux</th><th>Validité</th><th>Source</th><th>Version</th></tr></thead><tbody>
+      ${rules.length ? `<table><thead><tr><th>Taxe</th><th>Code SH</th><th>Origine</th><th>Taux</th><th>Validité</th><th>Source</th><th>Version</th><th></th></tr></thead><tbody>
         ${rules.map(r => `<tr>
           <td>${esc(r.tax_code)} — ${esc(r.tax_name_fr)}</td><td>${esc(r.hs_code10)}</td><td>${esc(r.origin_country_iso2 || 'Tous')}</td>
           <td>${r.rate_percent}%</td><td>${esc(r.valid_from)} → ${esc(r.valid_to || 'en cours')}</td>
           <td>${esc(r.legal_source_title)} ${esc(r.article_reference || '')} (${esc(r.jora_reference || '')})</td>
           <td>${esc(r.version_code)}</td>
+          <td><button class="outline" onclick="showRuleHistory('${esc(r.hs_code10)}','${esc(r.tax_code)}')">Historique</button></td>
         </tr>`).join('')}
       </tbody></table>` : '<p class="muted">Aucune règle publiée. Le calcul retournera "INFORMATION NON DÉTERMINÉE" tant qu\'aucune règle n\'est ajoutée pour un Code SH donné.</p>'}
     </div>
+    <div id="ruleHistoryZone"></div>
   `;
   document.getElementById('ruleForm').addEventListener('submit', async (e) => {
     e.preventDefault();
@@ -746,6 +792,22 @@ async function renderRegulatory() {
     try { await api('/api/regulatory/rules', { method: 'POST', body }); toast('Règle publiée.', 'success'); render(); }
     catch (err) { toast(err.message, 'error'); }
   });
+}
+
+async function showRuleHistory(hsCode10, taxCode) {
+  const zone = document.getElementById('ruleHistoryZone');
+  zone.innerHTML = '<p class="muted">Chargement de l\'historique…</p>';
+  try {
+    const h = await api(`/api/regulatory/rules/history/${encodeURIComponent(hsCode10)}/${encodeURIComponent(taxCode)}`);
+    zone.innerHTML = `
+      <div class="card">
+        <h3>Historique des versions — ${esc(taxCode)} / SH ${esc(hsCode10)}</h3>
+        ${h.diffs.length ? `<table><thead><tr><th>Ancienne version</th><th>Ancien taux</th><th>Nouvelle version</th><th>Nouveau taux</th><th>Écart</th><th>Effet</th><th>Source</th></tr></thead><tbody>
+          ${h.diffs.map(d => `<tr><td>${esc(d.oldVersion)}</td><td>${d.oldRate}%</td><td>${esc(d.newVersion)}</td><td>${d.newRate}%</td>
+            <td>${d.deltaPercentagePoints > 0 ? '+' : ''}${d.deltaPercentagePoints} pts</td><td>${esc(d.newValidFrom)}</td><td>${esc(d.legalSource)}</td></tr>`).join('')}
+        </tbody></table>` : `<p class="muted">Une seule version publiée (aucun changement historique) : ${h.versions.length ? h.versions[0].rate_percent + '% depuis le ' + h.versions[0].valid_from : 'aucune donnée'}.</p>`}
+      </div>`;
+  } catch (err) { zone.innerHTML = `<p class="pill ERREUR">${esc(err.message)}</p>`; }
 }
 
 function prefillRule(i) {
@@ -794,6 +856,53 @@ async function renderRates() {
 }
 
 // ---------------------------------------------------------------------------
+// VUE : UTILISATEURS & RÔLES (Sections 21, 39)
+// ---------------------------------------------------------------------------
+async function renderUsers() {
+  $main.innerHTML = `
+    <h1>Utilisateurs & Rôles</h1>
+    <div class="subtitle">Seul un utilisateur au rôle <b>Administrateur</b> peut publier une règle réglementaire ou un taux de change officiel.</div>
+    <div class="card">
+      <h2>Ajouter un utilisateur</h2>
+      <form id="userForm">
+        <div class="grid grid-3">
+          <div><label>Nom complet *</label><input name="fullName" required /></div>
+          <div><label>Rôle</label>
+            <select name="role">
+              <option value="ADMINISTRATEUR">Administrateur</option>
+              <option value="UTILISATEUR" selected>Utilisateur</option>
+              <option value="CONSULTATION">Consultation</option>
+            </select>
+          </div>
+        </div>
+        <button type="submit">Créer l'utilisateur</button>
+      </form>
+    </div>
+    <div class="card">
+      <h2>Utilisateurs (${state.users.length})</h2>
+      <table><thead><tr><th>Nom</th><th>Rôle</th><th></th></tr></thead><tbody>
+        ${state.users.map(u => `<tr>
+          <td>${esc(u.full_name)} ${u.id === state.currentUserId ? '<span class="pill ok">actif</span>' : ''}</td>
+          <td><span class="badge-status">${ROLE_LABELS[u.role] || u.role}</span></td>
+          <td><button class="danger" onclick="deleteUser('${u.id}')">Suppr.</button></td>
+        </tr>`).join('')}
+      </tbody></table>
+    </div>
+  `;
+  document.getElementById('userForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const fd = Object.fromEntries(new FormData(e.target).entries());
+    try { await api('/api/users', { method: 'POST', body: fd }); toast('Utilisateur créé.', 'success'); await refreshUsers(); render(); }
+    catch (err) { toast(err.message, 'error'); }
+  });
+}
+
+async function deleteUser(id) {
+  try { await api(`/api/users/${id}`, { method: 'DELETE' }); await refreshUsers(); render(); }
+  catch (err) { toast(err.message, 'error'); }
+}
+
+// ---------------------------------------------------------------------------
 // VUE : JOURNAL D'AUDIT
 // ---------------------------------------------------------------------------
 async function renderAudit() {
@@ -821,6 +930,7 @@ async function render() {
     if (state.currentView === 'import-detail') return renderImportDetail();
     if (state.currentView === 'regulatory') return renderRegulatory();
     if (state.currentView === 'rates') return renderRates();
+    if (state.currentView === 'users') return renderUsers();
     if (state.currentView === 'audit') return renderAudit();
   } catch (err) {
     $main.innerHTML = `<div class="card"><p class="pill ERREUR">Erreur : ${esc(err.message)}</p></div>`;
@@ -829,6 +939,7 @@ async function render() {
 
 (async function init() {
   window.__feeCatalog = await api('/api/fee-catalog');
+  await refreshUsers();
   await refreshCompanies();
   document.querySelector('#mainNav a[data-view="dashboard"]').classList.add('active');
   render();
