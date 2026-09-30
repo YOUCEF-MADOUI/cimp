@@ -1,0 +1,47 @@
+<UserControl x:Class="ImportCostAlgeria.Presentation.Views.ParametresView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <Grid Margin="16">
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="*" />
+            <ColumnDefinition Width="*" />
+        </Grid.ColumnDefinitions>
+
+        <StackPanel Grid.Column="0" Margin="0,0,12,0">
+            <TextBlock Text="Paramètres de l'entreprise" FontSize="16" FontWeight="Bold" Margin="0,0,0,8" />
+            <TextBlock Text="{Binding CompanyLabel}" FontStyle="Italic" Margin="0,0,0,12" />
+
+            <CheckBox Content="TVA d'importation non récupérable (incluse au coût de revient — par défaut)"
+                      IsChecked="{Binding IsImportVatNonRecoverable}" />
+            <Button Content="Enregistrer" Command="{Binding SaveCompanySettingsCommand}" HorizontalAlignment="Left" Margin="4,16,4,4" />
+        </StackPanel>
+
+        <DockPanel Grid.Column="1">
+            <TextBlock DockPanel.Dock="Top" Text="Utilisateurs et rôles" FontSize="16" FontWeight="Bold" Margin="0,0,0,8" />
+
+            <Border DockPanel.Dock="Top" BorderBrush="#DDD" BorderThickness="1" Padding="12" Margin="0,0,0,12">
+                <StackPanel>
+                    <TextBlock Text="Créer un compte (réservé à l'Administrateur)" FontWeight="Bold" Margin="0,0,0,8" />
+                    <Label Content="Identifiant de connexion" />
+                    <TextBox Text="{Binding NewUsername, UpdateSourceTrigger=PropertyChanged}" />
+                    <Label Content="Nom affiché" />
+                    <TextBox Text="{Binding NewDisplayName, UpdateSourceTrigger=PropertyChanged}" />
+                    <Label Content="Mot de passe initial" />
+                    <PasswordBox x:Name="NewPasswordBox" PasswordChanged="OnNewPasswordChanged" />
+                    <Label Content="Rôle" />
+                    <ComboBox ItemsSource="{Binding Roles}" SelectedItem="{Binding NewRole}" />
+                    <Button Content="Créer l'utilisateur" Command="{Binding CreateUserCommand}" Margin="4,12,4,4" />
+                </StackPanel>
+            </Border>
+
+            <DataGrid ItemsSource="{Binding Users}" IsReadOnly="True" AutoGenerateColumns="False">
+                <DataGrid.Columns>
+                    <DataGridTextColumn Header="Identifiant" Binding="{Binding Username}" Width="120" />
+                    <DataGridTextColumn Header="Nom" Binding="{Binding DisplayName}" Width="140" />
+                    <DataGridTextColumn Header="Rôle" Binding="{Binding Role}" Width="110" />
+                    <DataGridCheckBoxColumn Header="Actif" Binding="{Binding IsActive}" Width="60" />
+                </DataGrid.Columns>
+            </DataGrid>
+        </DockPanel>
+    </Grid>
+</UserControl>

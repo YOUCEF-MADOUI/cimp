@@ -1,0 +1,144 @@
+<UserControl x:Class="ImportCostAlgeria.Presentation.Views.ImportDetailView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             x:Name="Root">
+    <DockPanel Margin="16">
+        <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,8">
+            <Button Content="&#8592; Retour à la liste" Command="{Binding BackCommand}" />
+            <TextBlock Text="{Binding HeaderLabel}" FontSize="16" FontWeight="Bold" VerticalAlignment="Center" Margin="16,0,0,0" />
+        </StackPanel>
+
+        <Border DockPanel.Dock="Top"
+                Visibility="{Binding HasBlockingAnomalies, Converter={StaticResource BoolToVisibilityConverter}}"
+                Background="#FCE8E6" Padding="8" Margin="0,0,0,8">
+            <TextBlock Text="🚫 Cette importation comporte des anomalies BLOQUANTES : le coût de revient ne peut pas être considéré comme définitif."
+                       Foreground="DarkRed" FontWeight="Bold" TextWrapping="Wrap" />
+        </Border>
+
+        <UniformGrid DockPanel.Dock="Top" Columns="5" Margin="0,0,0,8">
+            <TextBlock><Run Text="Valeur en douane : " FontWeight="Bold"/><Run Text="{Binding TotalValeurDouaneDzd, StringFormat=N2}"/></TextBlock>
+            <TextBlock><Run Text="Droits de douane : " FontWeight="Bold"/><Run Text="{Binding TotalDroitsDouaneDzd, StringFormat=N2}"/></TextBlock>
+            <TextBlock><Run Text="TVA import : " FontWeight="Bold"/><Run Text="{Binding TotalTvaDzd, StringFormat=N2}"/></TextBlock>
+            <TextBlock><Run Text="Frais alloués : " FontWeight="Bold"/><Run Text="{Binding TotalFraisDzd, StringFormat=N2}"/></TextBlock>
+            <TextBlock><Run Text="Coût de revient total : " FontWeight="Bold"/><Run Text="{Binding TotalCoutRevientDzd, StringFormat=N2}" FontWeight="Bold"/></TextBlock>
+        </UniformGrid>
+
+        <TabControl>
+            <TabItem Header="Articles">
+                <DockPanel>
+                    <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,4,0,4">
+                        <Button Content="Ajouter un article manuellement" Command="{Binding AddLineCommand}" />
+                        <Button Content="Importer depuis Excel / CSV..." Command="{Binding ImportExcelCommand}" />
+                    </StackPanel>
+                    <DataGrid ItemsSource="{Binding Lines}" AutoGenerateColumns="False">
+                        <DataGrid.Columns>
+                            <DataGridTextColumn Header="Référence" Binding="{Binding ProductReference}" Width="90" />
+                            <DataGridTextColumn Header="Désignation" Binding="{Binding Designation}" Width="160" />
+                            <DataGridTextColumn Header="Qté" Binding="{Binding Quantity}" Width="55" />
+                            <DataGridTextColumn Header="Prix unit." Binding="{Binding UnitPurchasePrice}" Width="75" />
+                            <DataGridTextColumn Header="Dev." Binding="{Binding CurrencyCode}" Width="50" />
+                            <DataGridTextColumn Header="Origine" Binding="{Binding OriginCountryIso2}" Width="55" />
+                            <DataGridTextColumn Header="Code SH confirmé" Binding="{Binding HsCodeConfirmed10}" Width="110" />
+                            <DataGridTextColumn Header="Statut IA" Binding="{Binding AiHsSummary}" Width="140" IsReadOnly="True" />
+                            <DataGridTemplateColumn Header="SH (IA)" Width="70">
+                                <DataGridTemplateColumn.CellTemplate>
+                                    <DataTemplate>
+                                        <Button Content="Proposer" Command="{Binding DataContext.ConfirmHsCommand, RelativeSource={RelativeSource AncestorType=UserControl}}" CommandParameter="{Binding}" />
+                                    </DataTemplate>
+                                </DataGridTemplateColumn.CellTemplate>
+                            </DataGridTemplateColumn>
+                            <DataGridTextColumn Header="Droit Excel %" Binding="{Binding ExcelDutyRatePercent}" Width="85" />
+                            <DataGridTextColumn Header="Poids (kg)" Binding="{Binding LineGrossWeightKg}" Width="75" />
+                            <DataGridTextColumn Header="Volume (m³)" Binding="{Binding LineVolumeM3}" Width="80" />
+                            <DataGridTextColumn Header="Valeur douane" Binding="{Binding ValeurDouaniereDzd, StringFormat=N2}" Width="95" IsReadOnly="True" />
+                            <DataGridTextColumn Header="Droit douane" Binding="{Binding DroitDouaneDzd, StringFormat=N2}" Width="90" IsReadOnly="True" />
+                            <DataGridTextColumn Header="TVA" Binding="{Binding TvaDzd, StringFormat=N2}" Width="80" IsReadOnly="True" />
+                            <DataGridTextColumn Header="Coût de revient" Binding="{Binding CoutRevientDzd, StringFormat=N2}" Width="100" IsReadOnly="True" />
+                            <DataGridTextColumn Header="Coût unitaire" Binding="{Binding CoutUnitaireDzd, StringFormat=N2}" Width="90" IsReadOnly="True" />
+                            <DataGridTextColumn Header="État" Binding="{Binding EtatLabel}" Width="100" IsReadOnly="True" />
+                            <DataGridTemplateColumn Header="Détail" Width="130">
+                                <DataGridTemplateColumn.CellTemplate>
+                                    <DataTemplate>
+                                        <StackPanel Orientation="Horizontal">
+                                            <Button Content="Voir" Command="{Binding DataContext.ViewDetailCommand, RelativeSource={RelativeSource AncestorType=UserControl}}" CommandParameter="{Binding}" />
+                                            <Button Content="✕" Command="{Binding DataContext.RemoveLineCommand, RelativeSource={RelativeSource AncestorType=UserControl}}" CommandParameter="{Binding}" />
+                                        </StackPanel>
+                                    </DataTemplate>
+                                </DataGridTemplateColumn.CellTemplate>
+                            </DataGridTemplateColumn>
+                        </DataGrid.Columns>
+                    </DataGrid>
+                </DockPanel>
+            </TabItem>
+
+            <TabItem Header="Frais (18 catégories)">
+                <DockPanel>
+                    <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,4,0,4">
+                        <ComboBox ItemsSource="{Binding FeeTemplates}" SelectedItem="{Binding SelectedFeeTemplate}"
+                                  DisplayMemberPath="DefaultLabelFr" Width="260" />
+                        <Button Content="Ajouter ce frais" Command="{Binding AddFeeCommand}" />
+                    </StackPanel>
+                    <DataGrid ItemsSource="{Binding Fees}" AutoGenerateColumns="False">
+                        <DataGrid.Columns>
+                            <DataGridTextColumn Header="Catégorie" Binding="{Binding FeeCategoryCode}" Width="140" />
+                            <DataGridTextColumn Header="Libellé" Binding="{Binding FeeName}" Width="160" />
+                            <DataGridTextColumn Header="Montant" Binding="{Binding Amount}" Width="90" />
+                            <DataGridTextColumn Header="Devise" Binding="{Binding CurrencyCode}" Width="60" />
+                            <DataGridComboBoxColumn Header="Méthode de répartition" SelectedItemBinding="{Binding AllocationMethod}" Width="150"
+                                                     ItemsSource="{Binding DataContext.FeeAllocationMethods, ElementName=Root}" />
+                            <DataGridCheckBoxColumn Header="Inclus valeur en douane" Binding="{Binding IncludeInCustomsValue}" Width="130" />
+                            <DataGridCheckBoxColumn Header="Inclus coût de revient" Binding="{Binding IncludeInCostOfGoods}" Width="130" />
+                            <DataGridTemplateColumn Header="Supprimer" Width="80">
+                                <DataGridTemplateColumn.CellTemplate>
+                                    <DataTemplate>
+                                        <Button Content="✕" Command="{Binding DataContext.RemoveFeeCommand, RelativeSource={RelativeSource AncestorType=UserControl}}" CommandParameter="{Binding}" />
+                                    </DataTemplate>
+                                </DataGridTemplateColumn.CellTemplate>
+                            </DataGridTemplateColumn>
+                        </DataGrid.Columns>
+                    </DataGrid>
+                </DockPanel>
+            </TabItem>
+
+            <TabItem Header="Taux de change &amp; Incoterm">
+                <StackPanel Margin="8">
+                    <TextBlock Text="Taux de change applicable" FontWeight="Bold" FontSize="14" Margin="0,0,0,4" />
+                    <TextBlock Text="{Binding ExchangeRateInfo}" TextWrapping="Wrap" Margin="0,0,0,12" />
+
+                    <CheckBox Content="Utiliser un taux de change manuel (⚠️ déclenchera une alerte si différent du taux officiel)"
+                              IsChecked="{Binding IsManualRateMode}" />
+                    <StackPanel Orientation="Horizontal" Margin="0,4,0,16" Visibility="{Binding IsManualRateMode, Converter={StaticResource BoolToVisibilityConverter}}">
+                        <Label Content="Taux manuel (1 devise = X DZD) :" />
+                        <TextBox Text="{Binding ManualRateValue, UpdateSourceTrigger=PropertyChanged}" Width="120" />
+                    </StackPanel>
+
+                    <TextBlock Text="Recommandations liées à l'Incoterm" FontWeight="Bold" FontSize="14" Margin="0,0,0,4" />
+                    <TextBlock Text="{Binding IncotermGuidance}" TextWrapping="Wrap" />
+                </StackPanel>
+            </TabItem>
+
+            <TabItem Header="Calcul &amp; Contrôles">
+                <DockPanel>
+                    <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,4,0,8">
+                        <Button Content="▶ Exécuter le calcul complet" Command="{Binding CalculateCommand}" FontWeight="Bold" />
+                        <Button Content="Exporter Excel" Command="{Binding ExportExcelCommand}" />
+                        <Button Content="Exporter PDF" Command="{Binding ExportPdfCommand}" />
+                    </StackPanel>
+                    <DataGrid ItemsSource="{Binding Anomalies}" IsReadOnly="True" AutoGenerateColumns="False">
+                        <DataGrid.Columns>
+                            <DataGridTextColumn Header="Sévérité" Binding="{Binding Severity}" Width="110" />
+                            <DataGridTextColumn Header="Code" Binding="{Binding AnomalyCode}" Width="160" />
+                            <DataGridTextColumn Header="Article n°" Binding="{Binding LineNumber}" Width="70" />
+                            <DataGridTextColumn Header="Message" Binding="{Binding MessageFr}" Width="*" />
+                        </DataGrid.Columns>
+                        <DataGrid.RowStyle>
+                            <Style TargetType="DataGridRow">
+                                <Setter Property="Background" Value="{Binding Severity, Converter={StaticResource SeverityToBrushConverter}}" />
+                            </Style>
+                        </DataGrid.RowStyle>
+                    </DataGrid>
+                </DockPanel>
+            </TabItem>
+        </TabControl>
+    </DockPanel>
+</UserControl>

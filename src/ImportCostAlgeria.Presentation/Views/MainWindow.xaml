@@ -1,0 +1,83 @@
+<Window x:Class="ImportCostAlgeria.Presentation.Views.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="clr-namespace:ImportCostAlgeria.Presentation.ViewModels"
+        xmlns:views="clr-namespace:ImportCostAlgeria.Presentation.Views"
+        Title="CIMP — Coût d'Importation Maître Pro (Algérie)" Height="820" Width="1400"
+        WindowStartupLocation="CenterScreen">
+    <Window.Resources>
+        <DataTemplate DataType="{x:Type vm:DashboardScreenViewModel}">
+            <views:DashboardView />
+        </DataTemplate>
+        <DataTemplate DataType="{x:Type vm:EntreprisesViewModel}">
+            <views:EntreprisesView />
+        </DataTemplate>
+        <DataTemplate DataType="{x:Type vm:ImportationsViewModel}">
+            <views:ImportationsView />
+        </DataTemplate>
+        <DataTemplate DataType="{x:Type vm:ImportDetailViewModel}">
+            <views:ImportDetailView />
+        </DataTemplate>
+        <DataTemplate DataType="{x:Type vm:ReglementationViewModel}">
+            <views:ReglementationView />
+        </DataTemplate>
+        <DataTemplate DataType="{x:Type vm:TauxDeChangeViewModel}">
+            <views:TauxDeChangeView />
+        </DataTemplate>
+        <DataTemplate DataType="{x:Type vm:AuditLogViewModel}">
+            <views:AuditLogView />
+        </DataTemplate>
+        <DataTemplate DataType="{x:Type vm:ParametresViewModel}">
+            <views:ParametresView />
+        </DataTemplate>
+    </Window.Resources>
+
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+
+        <Border Grid.Row="0" Background="#1A237E" Padding="12">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+
+                <TextBlock Grid.Column="0" Text="CIMP" Foreground="White" FontSize="22" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,24,0" />
+
+                <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                    <TextBlock Text="Entreprise active :" Foreground="White" VerticalAlignment="Center" Margin="0,0,8,0" />
+                    <ComboBox ItemsSource="{Binding Companies}" SelectedItem="{Binding SelectedCompany}"
+                              DisplayMemberPath="LegalName" Width="260" />
+                </StackPanel>
+
+                <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">
+                    <TextBlock Text="{Binding Session.DisplayLabel}" Foreground="White" VerticalAlignment="Center" Margin="0,0,16,0" />
+                    <Button Content="Quitter" Command="{Binding QuitCommand}" />
+                </StackPanel>
+            </Grid>
+        </Border>
+
+        <Grid Grid.Row="1">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="200" />
+                <ColumnDefinition Width="*" />
+            </Grid.ColumnDefinitions>
+
+            <StackPanel Grid.Column="0" Background="#E8EAF6">
+                <RadioButton Content="Tableau de bord" GroupName="Menu" IsChecked="True" Command="{Binding ShowDashboardCommand}" Margin="8" />
+                <RadioButton Content="Entreprises" GroupName="Menu" Command="{Binding ShowEntreprisesCommand}" Margin="8" />
+                <RadioButton Content="Importations" GroupName="Menu" Command="{Binding ShowImportationsCommand}" Margin="8" />
+                <RadioButton Content="Réglementation" GroupName="Menu" Command="{Binding ShowReglementationCommand}" Margin="8" />
+                <RadioButton Content="Taux de change" GroupName="Menu" Command="{Binding ShowTauxDeChangeCommand}" Margin="8" />
+                <RadioButton Content="Journal d'audit" GroupName="Menu" Command="{Binding ShowAuditCommand}" Margin="8" />
+                <RadioButton Content="Paramètres &amp; Utilisateurs" GroupName="Menu" Command="{Binding ShowParametresCommand}" Margin="8" />
+            </StackPanel>
+
+            <ContentControl Grid.Column="1" Content="{Binding CurrentView}" Margin="0" />
+        </Grid>
+    </Grid>
+</Window>

@@ -1,0 +1,40 @@
+<Window x:Class="ImportCostAlgeria.Presentation.Views.HsConfirmDialog"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Proposition IA — Classification du code SH" Height="420" Width="560"
+        WindowStartupLocation="CenterOwner">
+    <StackPanel Margin="20">
+        <TextBlock Text="⚠️ Proposition de l'Intelligence Artificielle — à valider obligatoirement par un humain"
+                   FontWeight="Bold" Foreground="DarkOrange" TextWrapping="Wrap" Margin="0,0,0,12" />
+
+        <TextBlock Text="Article :" FontWeight="Bold" />
+        <TextBlock Text="{Binding Proposal.ProductDesignation}" Margin="0,0,0,8" TextWrapping="Wrap" />
+
+        <TextBlock Text="Code SH (10 chiffres) proposé :" FontWeight="Bold" />
+        <TextBlock Text="{Binding Proposal.ProposedHsCode10}" FontSize="18" Margin="0,0,0,8" />
+
+        <TextBlock Text="Désignation tarifaire :" FontWeight="Bold" />
+        <TextBlock Text="{Binding Proposal.ProposedTariffDescriptionFr}" TextWrapping="Wrap" Margin="0,0,0,8" />
+
+        <TextBlock Text="Règle générale interprétative (RGI) utilisée :" FontWeight="Bold" />
+        <TextBlock Text="{Binding Proposal.GeneralInterpretiveRuleUsed}" TextWrapping="Wrap" Margin="0,0,0,8" />
+
+        <TextBlock Text="Justification :" FontWeight="Bold" />
+        <TextBlock Text="{Binding Proposal.JustificationFr}" TextWrapping="Wrap" Margin="0,0,0,8" />
+
+        <TextBlock Margin="0,0,0,8">
+            <Run Text="Confiance IA : " FontWeight="Bold" />
+            <Run Text="{Binding Proposal.ConfidencePercent, StringFormat={}{0:N1} %}" />
+        </TextBlock>
+
+        <Label Content="Code SH modifié (uniquement si vous choisissez [MODIFIER])" />
+        <TextBox Text="{Binding ModifiedHsCode, UpdateSourceTrigger=PropertyChanged}" />
+
+        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,20,0,0">
+            <Button Content="✓ CONFIRMER" Click="OnConfirmerClick" />
+            <Button Content="✎ MODIFIER" Click="OnModifierClick" />
+            <Button Content="✗ REFUSER" Click="OnRefuserClick" />
+            <Button Content="Annuler" Click="OnAnnulerClick" />
+        </StackPanel>
+    </StackPanel>
+</Window>

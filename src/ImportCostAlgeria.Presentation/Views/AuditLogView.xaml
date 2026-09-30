@@ -1,0 +1,25 @@
+<UserControl x:Class="ImportCostAlgeria.Presentation.Views.AuditLogView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <DockPanel Margin="16">
+        <TextBlock DockPanel.Dock="Top" Text="Journal d'audit (lecture seule — aucune entrée n'est jamais supprimable)"
+                   FontSize="16" FontWeight="Bold" Margin="0,0,0,8" />
+        <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,8">
+            <Label Content="Filtrer (catégorie / action) :" />
+            <TextBox Text="{Binding FilterCategory, UpdateSourceTrigger=PropertyChanged}" Width="220" />
+            <Button Content="Actualiser" Command="{Binding RefreshCommand}" />
+        </StackPanel>
+        <DataGrid ItemsSource="{Binding Entries}" IsReadOnly="True" AutoGenerateColumns="False">
+            <DataGrid.Columns>
+                <DataGridTextColumn Header="Horodatage (UTC)" Binding="{Binding TimestampUtc, StringFormat='dd/MM/yyyy HH:mm:ss'}" Width="140" />
+                <DataGridTextColumn Header="Utilisateur" Binding="{Binding UserDisplayName}" Width="120" />
+                <DataGridTextColumn Header="Catégorie" Binding="{Binding ActionCategory}" Width="140" />
+                <DataGridTextColumn Header="Action" Binding="{Binding ActionName}" Width="180" />
+                <DataGridTextColumn Header="Ancienne valeur" Binding="{Binding OldValue}" Width="180" />
+                <DataGridTextColumn Header="Nouvelle valeur" Binding="{Binding NewValue}" Width="220" />
+                <DataGridTextColumn Header="Règle réglementaire" Binding="{Binding RegulatoryRuleCode}" Width="150" />
+                <DataGridTextColumn Header="Source légale" Binding="{Binding LegalSourceReference}" Width="*" />
+            </DataGrid.Columns>
+        </DataGrid>
+    </DockPanel>
+</UserControl>

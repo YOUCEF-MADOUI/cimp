@@ -1,0 +1,74 @@
+<UserControl x:Class="ImportCostAlgeria.Presentation.Views.ImportationsView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <Grid Margin="16">
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="2*" />
+            <ColumnDefinition Width="3*" />
+        </Grid.ColumnDefinitions>
+
+        <DockPanel Grid.Column="0" Margin="0,0,12,0">
+            <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,8">
+                <TextBlock Text="Importations" FontSize="18" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,16,0" />
+                <Button Content="Nouvelle importation" Command="{Binding NewCommand}" />
+            </StackPanel>
+            <DataGrid ItemsSource="{Binding Operations}" SelectedItem="{Binding Selected}">
+                <DataGrid.Columns>
+                    <DataGridTextColumn Header="N° Import" Binding="{Binding ImportNumber}" Width="140" />
+                    <DataGridTextColumn Header="Date" Binding="{Binding ReferenceDate, StringFormat=dd/MM/yyyy}" Width="90" />
+                    <DataGridTextColumn Header="Fournisseur" Binding="{Binding SupplierName}" Width="*" />
+                    <DataGridTextColumn Header="Incoterm" Binding="{Binding Incoterm}" Width="70" />
+                </DataGrid.Columns>
+            </DataGrid>
+        </DockPanel>
+
+        <Border Grid.Column="1" BorderBrush="#DDD" BorderThickness="1" Padding="16"
+                Visibility="{Binding Selected, Converter={StaticResource NullToVisibilityConverter}}">
+            <ScrollViewer VerticalScrollBarVisibility="Auto">
+            <StackPanel DataContext="{Binding Selected}">
+                <TextBlock Text="Fiche importation" FontSize="16" FontWeight="Bold" Margin="0,0,0,12" />
+
+                <Label Content="N° d'importation" />
+                <TextBox Text="{Binding ImportNumber, UpdateSourceTrigger=PropertyChanged}" />
+
+                <Label Content="Date de référence" />
+                <DatePicker SelectedDate="{Binding ReferenceDate, Converter={StaticResource DateOnlyConverter}}" Margin="4" />
+
+                <Label Content="Fournisseur" />
+                <TextBox Text="{Binding SupplierName, UpdateSourceTrigger=PropertyChanged}" />
+
+                <Label Content="Pays d'expédition (ISO2)" />
+                <TextBox Text="{Binding ExportShippingCountryIso2, UpdateSourceTrigger=PropertyChanged}" MaxLength="2" />
+
+                <Label Content="Pays d'origine par défaut (ISO2, optionnel)" />
+                <TextBox Text="{Binding DefaultOriginCountryIso2, UpdateSourceTrigger=PropertyChanged}" MaxLength="2" />
+
+                <Label Content="Devise principale" />
+                <TextBox Text="{Binding MainCurrencyCode, UpdateSourceTrigger=PropertyChanged}" MaxLength="3" />
+
+                <Label Content="Incoterm (V1 : EXW / FOB / CFR)" />
+                <ComboBox ItemsSource="{Binding DataContext.IncotermsV1, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                          SelectedItem="{Binding Incoterm}" />
+
+                <Label Content="Port / frontière d'arrivée" />
+                <TextBox Text="{Binding ArrivalPortOrBorder, UpdateSourceTrigger=PropertyChanged}" />
+
+                <Label Content="Mode de transport" />
+                <TextBox Text="{Binding TransportMode, UpdateSourceTrigger=PropertyChanged}" />
+
+                <Label Content="Taux de change manuel (optionnel — ⚠️ déclenche une alerte si différent du taux officiel)" />
+                <TextBox Text="{Binding ManualExchangeRateOverride, UpdateSourceTrigger=PropertyChanged}" />
+
+                <StackPanel Orientation="Horizontal" Margin="0,16,0,0">
+                    <Button Content="Enregistrer"
+                            Command="{Binding DataContext.SaveCommand, RelativeSource={RelativeSource AncestorType=UserControl}}" />
+                    <Button Content="Ouvrir (lignes, calcul, exports)"
+                            Command="{Binding DataContext.OpenCommand, RelativeSource={RelativeSource AncestorType=UserControl}}" />
+                    <Button Content="Supprimer"
+                            Command="{Binding DataContext.DeleteCommand, RelativeSource={RelativeSource AncestorType=UserControl}}" />
+                </StackPanel>
+            </StackPanel>
+            </ScrollViewer>
+        </Border>
+    </Grid>
+</UserControl>

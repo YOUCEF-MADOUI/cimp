@@ -1,10 +1,24 @@
-<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk.WindowsDesktop">
   <PropertyGroup>
-    <TargetFramework>net8.0</TargetFramework>
+    <!--
+      Application Windows native WPF (Priorité 1 du plan de finalisation).
+      IMPORTANT (transparence totale — voir rapport final section E) : la compilation d'un projet WPF
+      (Microsoft.NET.Sdk.WindowsDesktop, UseWPF=true) nécessite la compilation XAML->BAML, qui n'est
+      possible QUE sous Windows. Ce projet est donc écrit pour être ouvert, compilé et exécuté par
+      l'utilisateur dans Visual Studio 2022 sous Windows (F5), où le SDK .NET 8 complet est disponible.
+    -->
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <RootNamespace>ImportCostAlgeria.Presentation</RootNamespace>
+    <AssemblyName>CIMP</AssemblyName>
+    <ApplicationIcon Condition="Exists('app.ico')">app.ico</ApplicationIcon>
   </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="8.0.0" />
+  </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\ImportCostAlgeria.Core\ImportCostAlgeria.Core.csproj" />
     <ProjectReference Include="..\ImportCostAlgeria.RegulatoryEngine\ImportCostAlgeria.RegulatoryEngine.csproj" />
@@ -13,5 +27,6 @@
     <ProjectReference Include="..\ImportCostAlgeria.Reporting\ImportCostAlgeria.Reporting.csproj" />
     <ProjectReference Include="..\ImportCostAlgeria.Audit\ImportCostAlgeria.Audit.csproj" />
     <ProjectReference Include="..\ImportCostAlgeria.AI\ImportCostAlgeria.AI.csproj" />
+    <ProjectReference Include="..\ImportCostAlgeria.Database\ImportCostAlgeria.Database.csproj" />
   </ItemGroup>
 </Project>

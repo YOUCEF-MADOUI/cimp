@@ -1,0 +1,80 @@
+<UserControl x:Class="ImportCostAlgeria.Presentation.Views.ReglementationView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <Grid Margin="16">
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="3*" />
+            <ColumnDefinition Width="2*" />
+        </Grid.ColumnDefinitions>
+
+        <DockPanel Grid.Column="0" Margin="0,0,12,0">
+            <TextBlock DockPanel.Dock="Top" Text="Réglementation — Règles versionnées (base officielle uniquement)"
+                       FontSize="16" FontWeight="Bold" Margin="0,0,0,8" />
+            <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,8">
+                <Label Content="Filtrer par Code SH :" />
+                <TextBox Text="{Binding FilterHsCode, UpdateSourceTrigger=PropertyChanged}" Width="120" />
+                <Label Content="Filtrer par taxe :" />
+                <TextBox Text="{Binding FilterTaxCode, UpdateSourceTrigger=PropertyChanged}" Width="80" />
+                <Button Content="Actualiser" Command="{Binding RefreshCommand}" />
+            </StackPanel>
+            <DataGrid ItemsSource="{Binding AllRules}" SelectedItem="{Binding Selected}" IsReadOnly="True" AutoGenerateColumns="False">
+                <DataGrid.Columns>
+                    <DataGridTextColumn Header="Taxe" Binding="{Binding TaxCode}" Width="60" />
+                    <DataGridTextColumn Header="Code SH" Binding="{Binding HsCode10}" Width="100" />
+                    <DataGridTextColumn Header="Origine" Binding="{Binding OriginCountryIso2}" Width="60" />
+                    <DataGridTextColumn Header="Taux %" Binding="{Binding RatePercent, StringFormat=N2}" Width="70" />
+                    <DataGridTextColumn Header="Valide du" Binding="{Binding ValidFrom, StringFormat=dd/MM/yyyy}" Width="90" />
+                    <DataGridTextColumn Header="Valide au" Binding="{Binding ValidTo, StringFormat=dd/MM/yyyy}" Width="90" />
+                    <DataGridTextColumn Header="Version" Binding="{Binding RegulatoryVersionCode}" Width="100" />
+                    <DataGridTextColumn Header="Statut" Binding="{Binding Status}" Width="90" />
+                    <DataGridTextColumn Header="Source légale" Binding="{Binding LegalSource.OfficialTitle}" Width="*" />
+                </DataGrid.Columns>
+            </DataGrid>
+        </DockPanel>
+
+        <Border Grid.Column="1" BorderBrush="#DDD" BorderThickness="1" Padding="16">
+            <ScrollViewer VerticalScrollBarVisibility="Auto">
+                <StackPanel>
+                    <TextBlock Text="Publier une nouvelle version de règle" FontSize="14" FontWeight="Bold" Margin="0,0,0,8" />
+                    <TextBlock Text="⚠️ Réservé à l'Administrateur. Ferme automatiquement la période précédente pour ce couple Taxe/Code SH — n'écrase jamais l'historique." TextWrapping="Wrap" Foreground="DarkOrange" Margin="0,0,0,12" />
+
+                    <Label Content="Type de taxe" />
+                    <ComboBox ItemsSource="{Binding RuleTypes}" SelectedItem="{Binding NewRuleType}" />
+
+                    <Label Content="Code taxe (ex : DD, TVA, DAPS)" />
+                    <TextBox Text="{Binding NewTaxCode, UpdateSourceTrigger=PropertyChanged}" />
+
+                    <Label Content="Code SH (10 chiffres)" />
+                    <TextBox Text="{Binding NewHsCode10, UpdateSourceTrigger=PropertyChanged}" />
+
+                    <Label Content="Pays d'origine (ISO2, optionnel = toutes origines)" />
+                    <TextBox Text="{Binding NewOriginCountryIso2, UpdateSourceTrigger=PropertyChanged}" MaxLength="2" />
+
+                    <Label Content="Taux (%)" />
+                    <TextBox Text="{Binding NewRatePercent, UpdateSourceTrigger=PropertyChanged}" />
+
+                    <Label Content="Assiette de calcul" />
+                    <ComboBox ItemsSource="{Binding CalculationBases}" SelectedItem="{Binding NewCalculationBase}" />
+
+                    <Label Content="Date d'entrée en vigueur" />
+                    <DatePicker SelectedDate="{Binding NewValidFrom}" />
+
+                    <TextBlock Text="Source légale (obligatoire — jamais de taux sans citation)" FontWeight="Bold" Margin="0,12,0,4" />
+                    <Label Content="Niveau hiérarchique de la source" />
+                    <ComboBox ItemsSource="{Binding HierarchyLevels}" SelectedItem="{Binding NewHierarchyLevel}" />
+
+                    <Label Content="Intitulé officiel (ex : Loi de Finances Complémentaire 2026)" />
+                    <TextBox Text="{Binding NewOfficialTitle, UpdateSourceTrigger=PropertyChanged}" />
+
+                    <Label Content="Référence JORA" />
+                    <TextBox Text="{Binding NewJoraReference, UpdateSourceTrigger=PropertyChanged}" />
+
+                    <Label Content="Article de loi" />
+                    <TextBox Text="{Binding NewArticleReference, UpdateSourceTrigger=PropertyChanged}" />
+
+                    <Button Content="Publier cette nouvelle version" Command="{Binding PublishCommand}" Margin="4,20,4,4" />
+                </StackPanel>
+            </ScrollViewer>
+        </Border>
+    </Grid>
+</UserControl>

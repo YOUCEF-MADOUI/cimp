@@ -1,0 +1,79 @@
+<Window x:Class="ImportCostAlgeria.Presentation.Views.LineDetailDialog"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Détail de l'article" Height="720" Width="900"
+        WindowStartupLocation="CenterOwner">
+    <ScrollViewer Margin="16" VerticalScrollBarVisibility="Auto">
+        <StackPanel>
+            <TextBlock Text="{Binding Row.Designation}" FontSize="18" FontWeight="Bold" />
+            <TextBlock Text="{Binding Row.ProductReference}" Foreground="Gray" Margin="0,0,0,16" />
+
+            <TextBlock Text="1. Valeur et droits en douane" FontSize="14" FontWeight="Bold" Margin="0,8,0,4" />
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="*" />
+                </Grid.ColumnDefinitions>
+                <StackPanel Grid.Column="0">
+                    <TextBlock><Run Text="Valeur en douane : " FontWeight="Bold" /><Run Text="{Binding Result.CustomsOutcome.CustomsValueDzd, StringFormat={}{0:N2} DZD}" /></TextBlock>
+                    <TextBlock><Run Text="Taux de droit de douane appliqué : " FontWeight="Bold" /><Run Text="{Binding Result.CustomsOutcome.CustomsDutyRatePercent, StringFormat={}{0:N2} %}" /></TextBlock>
+                    <TextBlock><Run Text="Montant du droit de douane : " FontWeight="Bold" /><Run Text="{Binding Result.CustomsOutcome.CustomsDutyAmountDzd, StringFormat={}{0:N2} DZD}" /></TextBlock>
+                </StackPanel>
+                <StackPanel Grid.Column="1">
+                    <TextBlock Text="{Binding ComparaisonDroitExcelVsReglementaire}" TextWrapping="Wrap" Foreground="DarkBlue" />
+                </StackPanel>
+            </Grid>
+
+            <TextBlock Text="2. Taxes additionnelles et TVA à l'importation (avec source légale)" FontSize="14" FontWeight="Bold" Margin="0,16,0,4" />
+            <DataGrid ItemsSource="{Binding TaxesAppliquees}" IsReadOnly="True" MaxHeight="180">
+                <DataGrid.Columns>
+                    <DataGridTextColumn Header="Taxe" Binding="{Binding TaxNameFr}" Width="140" />
+                    <DataGridTextColumn Header="Base taxable" Binding="{Binding TaxableBaseDzd, StringFormat=N2}" Width="110" />
+                    <DataGridTextColumn Header="Taux %" Binding="{Binding RatePercent, StringFormat=N2}" Width="70" />
+                    <DataGridTextColumn Header="Montant DZD" Binding="{Binding TaxAmountDzd, StringFormat=N2}" Width="110" />
+                    <DataGridTextColumn Header="Non récupérable" Binding="{Binding IsNonRecoverable}" Width="110" />
+                    <DataGridTextColumn Header="Article de loi" Binding="{Binding LegalArticleReference}" Width="140" />
+                    <DataGridTextColumn Header="JORA" Binding="{Binding JoraReference}" Width="110" />
+                    <DataGridTextColumn Header="Version réglementaire" Binding="{Binding RegulatoryVersionCode}" Width="140" />
+                </DataGrid.Columns>
+            </DataGrid>
+            <TextBlock Margin="0,8,0,0">
+                <Run Text="TVA à l'importation : " FontWeight="Bold" />
+                <Run Text="{Binding Result.CustomsOutcome.VatRatePercent, StringFormat={}{0:N2} %}" />
+                <Run Text=" — " />
+                <Run Text="{Binding Result.CustomsOutcome.ImportVatAmountDzd, StringFormat={}{0:N2} DZD}" />
+            </TextBlock>
+
+            <TextBlock Text="3. Frais alloués à cet article" FontSize="14" FontWeight="Bold" Margin="0,16,0,4" />
+            <DataGrid ItemsSource="{Binding FraisAlloues}" IsReadOnly="True" MaxHeight="150">
+                <DataGrid.Columns>
+                    <DataGridTextColumn Header="Frais" Binding="{Binding FeeName}" Width="160" />
+                    <DataGridTextColumn Header="Méthode de répartition" Binding="{Binding MethodUsed}" Width="140" />
+                    <DataGridTextColumn Header="Quote-part" Binding="{Binding ShareRatio, StringFormat=P2}" Width="90" />
+                    <DataGridTextColumn Header="Montant alloué DZD" Binding="{Binding AllocatedAmountDzd, StringFormat=N2}" Width="130" />
+                    <DataGridTextColumn Header="Inclus valeur en douane" Binding="{Binding IncludedInCustomsValue}" Width="130" />
+                    <DataGridTextColumn Header="Inclus coût de revient" Binding="{Binding IncludedInCostOfGoods}" Width="130" />
+                </DataGrid.Columns>
+            </DataGrid>
+
+            <TextBlock Text="4. Coût de revient économique réel (distinct de la valeur en douane)" FontSize="14" FontWeight="Bold" Margin="0,16,0,4" />
+            <TextBlock><Run Text="Coût d'acquisition HT : " FontWeight="Bold" /><Run Text="{Binding Result.EconomicOutcome.AcquisitionCostExVatDzd, StringFormat={}{0:N2} DZD}" /></TextBlock>
+            <TextBlock><Run Text="TVA / taxes non récupérables incluses : " FontWeight="Bold" /><Run Text="{Binding Result.EconomicOutcome.NonRecoverableImportVatDzd, StringFormat={}{0:N2} DZD}" /></TextBlock>
+            <TextBlock FontSize="16" Margin="0,8,0,0"><Run Text="Coût de revient total : " FontWeight="Bold" /><Run Text="{Binding Result.EconomicOutcome.RealCostOfGoodsTotalDzd, StringFormat={}{0:N2} DZD}" FontWeight="Bold" /></TextBlock>
+            <TextBlock FontSize="16"><Run Text="Coût unitaire de revient : " FontWeight="Bold" /><Run Text="{Binding Result.EconomicOutcome.UnitCostOfGoodsDzd, StringFormat={}{0:N2} DZD}" FontWeight="Bold" /></TextBlock>
+
+            <TextBlock Text="5. Contrôles / anomalies concernant cet article" FontSize="14" FontWeight="Bold" Margin="0,16,0,4" />
+            <ItemsControl ItemsSource="{Binding Anomalies}">
+                <ItemsControl.ItemTemplate>
+                    <DataTemplate>
+                        <Border Background="{Binding Severity, Converter={StaticResource SeverityToBrushConverter}}" Padding="6" Margin="0,2" CornerRadius="3">
+                            <TextBlock Text="{Binding MessageFr}" TextWrapping="Wrap" />
+                        </Border>
+                    </DataTemplate>
+                </ItemsControl.ItemTemplate>
+            </ItemsControl>
+
+            <Button Content="Fermer" HorizontalAlignment="Right" Margin="0,16,0,0" Click="OnCloseClick" />
+        </StackPanel>
+    </ScrollViewer>
+</Window>

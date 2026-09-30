@@ -1,0 +1,50 @@
+<UserControl x:Class="ImportCostAlgeria.Presentation.Views.TauxDeChangeView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <Grid Margin="16">
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="3*" />
+            <ColumnDefinition Width="2*" />
+        </Grid.ColumnDefinitions>
+
+        <DockPanel Grid.Column="0" Margin="0,0,12,0">
+            <TextBlock DockPanel.Dock="Top" Text="Taux de change — historique officiel versionné" FontSize="16" FontWeight="Bold" Margin="0,0,0,8" />
+            <Button DockPanel.Dock="Top" Content="Actualiser" Command="{Binding RefreshCommand}" HorizontalAlignment="Left" Margin="0,0,0,8" />
+            <DataGrid ItemsSource="{Binding Rates}" IsReadOnly="True" AutoGenerateColumns="False">
+                <DataGrid.Columns>
+                    <DataGridTextColumn Header="Devise" Binding="{Binding CurrencyCode}" Width="70" />
+                    <DataGridTextColumn Header="Taux -&gt; DZD" Binding="{Binding RateToDzd, StringFormat=N4}" Width="100" />
+                    <DataGridTextColumn Header="Valide du" Binding="{Binding ValidFrom, StringFormat=dd/MM/yyyy}" Width="90" />
+                    <DataGridTextColumn Header="Valide au" Binding="{Binding ValidTo, StringFormat=dd/MM/yyyy}" Width="90" />
+                    <DataGridTextColumn Header="Type" Binding="{Binding RateType}" Width="160" />
+                    <DataGridTextColumn Header="Source" Binding="{Binding SourceName}" Width="*" />
+                </DataGrid.Columns>
+            </DataGrid>
+        </DockPanel>
+
+        <Border Grid.Column="1" BorderBrush="#DDD" BorderThickness="1" Padding="16">
+            <StackPanel>
+                <TextBlock Text="Publier un nouveau taux officiel" FontSize="14" FontWeight="Bold" Margin="0,0,0,8" />
+                <TextBlock Text="⚠️ Réservé à l'Administrateur. Le taux actuellement en vigueur pour cette devise sera automatiquement clôturé à la veille de la nouvelle date d'effet."
+                           TextWrapping="Wrap" Foreground="DarkOrange" Margin="0,0,0,12" />
+
+                <Label Content="Devise (ISO3)" />
+                <TextBox Text="{Binding NewCurrencyCode, UpdateSourceTrigger=PropertyChanged}" MaxLength="3" />
+
+                <Label Content="Taux (1 devise = X DZD)" />
+                <TextBox Text="{Binding NewRateToDzd, UpdateSourceTrigger=PropertyChanged}" />
+
+                <Label Content="Date d'entrée en vigueur" />
+                <DatePicker SelectedDate="{Binding NewValidFrom}" />
+
+                <Label Content="Type de taux" />
+                <TextBox Text="{Binding NewRateType, UpdateSourceTrigger=PropertyChanged}" />
+
+                <Label Content="Source" />
+                <TextBox Text="{Binding NewSourceName, UpdateSourceTrigger=PropertyChanged}" />
+
+                <Button Content="Publier ce taux" Command="{Binding PublishCommand}" Margin="4,20,4,4" />
+            </StackPanel>
+        </Border>
+    </Grid>
+</UserControl>
