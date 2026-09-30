@@ -73,6 +73,9 @@ public sealed class AuditTrailService
     public IReadOnlyList<AuditLogEntry> GetAuditLogsForCompany(Guid companyId) =>
         _store.GetForCompany(companyId);
 
+    /// <summary>Journal d'audit complet, toutes entreprises confondues (écran "Journal d'audit", Section 34).</summary>
+    public IReadOnlyList<AuditLogEntry> GetAllAuditLogs() => _store.GetAll();
+
     /// <summary>
     /// Point d'entrée générique d'écriture d'audit (Section 34) : couvre toutes les catégories exigées
     /// (création/modification/suppression, import, validation de mapping, changement de code SH,
