@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <RootNamespace>ImportCostAlgeria.Presentation</RootNamespace>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\ImportCostAlgeria.Core\ImportCostAlgeria.Core.csproj" />
+    <ProjectReference Include="..\ImportCostAlgeria.RegulatoryEngine\ImportCostAlgeria.RegulatoryEngine.csproj" />
+    <ProjectReference Include="..\ImportCostAlgeria.CalculationEngine\ImportCostAlgeria.CalculationEngine.csproj" />
+    <ProjectReference Include="..\ImportCostAlgeria.ExcelEngine\ImportCostAlgeria.ExcelEngine.csproj" />
+    <ProjectReference Include="..\ImportCostAlgeria.Reporting\ImportCostAlgeria.Reporting.csproj" />
+    <ProjectReference Include="..\ImportCostAlgeria.Audit\ImportCostAlgeria.Audit.csproj" />
+    <ProjectReference Include="..\ImportCostAlgeria.AI\ImportCostAlgeria.AI.csproj" />
+  </ItemGroup>
+</Project>

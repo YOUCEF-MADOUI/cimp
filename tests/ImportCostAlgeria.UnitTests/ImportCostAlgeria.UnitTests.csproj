@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.10.0" />
+    <PackageReference Include="xunit" Version="2.9.0" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="2.8.2" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\ImportCostAlgeria.Core\ImportCostAlgeria.Core.csproj" />
+    <ProjectReference Include="..\..\src\ImportCostAlgeria.RegulatoryEngine\ImportCostAlgeria.RegulatoryEngine.csproj" />
+    <ProjectReference Include="..\..\src\ImportCostAlgeria.CalculationEngine\ImportCostAlgeria.CalculationEngine.csproj" />
+    <ProjectReference Include="..\..\src\ImportCostAlgeria.ExcelEngine\ImportCostAlgeria.ExcelEngine.csproj" />
+    <ProjectReference Include="..\..\src\ImportCostAlgeria.Reporting\ImportCostAlgeria.Reporting.csproj" />
+    <ProjectReference Include="..\..\src\ImportCostAlgeria.Audit\ImportCostAlgeria.Audit.csproj" />
+    <ProjectReference Include="..\..\src\ImportCostAlgeria.AI\ImportCostAlgeria.AI.csproj" />
+  </ItemGroup>
+</Project>
