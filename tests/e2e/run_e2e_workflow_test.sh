@@ -17,6 +17,15 @@ fail() { echo "[FAIL] $1"; exit 1; }
 
 echo "=== CIMP — Test de bout en bout ==="
 
+# 0. Récupérer un utilisateur Administrateur (créé automatiquement au premier démarrage)
+ADMIN_ID=$(curl -s "$BASE/api/users" | python3 -c "
+import sys,json
+users=json.load(sys.stdin)['data']
+admin=next((u for u in users if u['role']=='ADMINISTRATEUR'), None)
+print(admin['id'] if admin else '')
+")
+[ -n "$ADMIN_ID" ] && pass "Compte Administrateur disponible ($ADMIN_ID)" || fail "Aucun compte Administrateur trouvé"
+
 # 1. Créer une entreprise
 COMPANY_ID=$(curl -s -X POST "$BASE/api/companies" -H "Content-Type: application/json" -d '{
   "legalName":"E2E TEST SARL","nif":"000000000000000","isVatNonRecoverable":true
@@ -24,12 +33,13 @@ COMPANY_ID=$(curl -s -X POST "$BASE/api/companies" -H "Content-Type: application
 [ -n "$COMPANY_ID" ] && pass "Création entreprise ($COMPANY_ID)" || fail "Création entreprise"
 
 # 2. Créer un dossier d'importation (Incoterm FOB)
-# NB: la devise principale du dossier est volontairement fixée à une devise fictive non publiée
-# ("E2Z") afin de garantir un test de blocage indépendant de l'état d'exécutions précédentes.
-IMPORT_ID=$(curl -s -X POST "$BASE/api/companies/$COMPANY_ID/imports" -H "Content-Type: application/json" -d '{
-  "importNumber":"E2E-TEST-0001","referenceDate":"2026-09-15","supplierName":"E2E SUPPLIER",
-  "exportShippingCountryIso2":"CN","defaultOriginCountryIso2":"CN","mainCurrencyCode":"E2Z","incoterm":"FOB"
-}' | python3 -c "import sys,json;print(json.load(sys.stdin)['data']['id'])")
+# NB: la devise principale du dossier est volontairement fixée à une devise fictive à usage unique
+# (jamais publiée) afin de garantir un test de blocage indépendant de l'état d'exécutions précédentes.
+FAKE_CCY="Z$(date +%s | tail -c 3)"
+IMPORT_ID=$(curl -s -X POST "$BASE/api/companies/$COMPANY_ID/imports" -H "Content-Type: application/json" -d "{
+  \"importNumber\":\"E2E-TEST-0001\",\"referenceDate\":\"2026-09-15\",\"supplierName\":\"E2E SUPPLIER\",
+  \"exportShippingCountryIso2\":\"CN\",\"defaultOriginCountryIso2\":\"CN\",\"mainCurrencyCode\":\"$FAKE_CCY\",\"incoterm\":\"FOB\"
+}" | python3 -c "import sys,json;print(json.load(sys.stdin)['data']['id'])")
 [ -n "$IMPORT_ID" ] && pass "Création dossier d'importation ($IMPORT_ID)" || fail "Création dossier"
 
 # 3. Import du fichier Excel fournisseur (colonne "Prix Fournisseur" non standard)
@@ -54,26 +64,35 @@ REUSE=$(curl -s -X POST "$BASE/api/imports/$IMPORT_ID/excel/upload" -F "file=@sa
 BLOCKED=$(curl -s -X POST "$BASE/api/imports/$IMPORT_ID/calculate" | python3 -c "import sys,json;print(json.load(sys.stdin)['data']['blocked'])")
 [ "$BLOCKED" = "True" ] && pass "Calcul correctement bloqué sans taux de change officiel" || fail "Le calcul aurait dû être bloqué"
 
-# 7. Publier le taux de change et les règles réglementaires
-curl -s -X POST "$BASE/api/exchange-rates" -H "Content-Type: application/json" -d '{
+# 6b. Vérifier qu'un utilisateur non-Administrateur ne peut PAS publier de règle (Sections 21 & 39)
+NONADMIN_ID=$(curl -s -X POST "$BASE/api/users" -H "Content-Type: application/json" -d '{"fullName":"E2E Non Admin","role":"UTILISATEUR"}' \
+  | python3 -c "import sys,json;print(json.load(sys.stdin)['data']['id'])")
+NONADMIN_HTTP=$(curl -s -o /dev/null -w "%{http_code}" -X POST "$BASE/api/exchange-rates" -H "Content-Type: application/json" -H "X-User-Id: $NONADMIN_ID" -d "{
+  \"currencyCode\":\"$FAKE_CCY\",\"rateToDzd\":1,\"validFrom\":\"2026-01-01\"
+}")
+[ "$NONADMIN_HTTP" = "403" ] && pass "Publication refusée pour un utilisateur non-Administrateur (HTTP 403)" || fail "Un non-Administrateur a pu publier une règle (HTTP $NONADMIN_HTTP)"
+curl -s -X DELETE "$BASE/api/users/$NONADMIN_ID" > /dev/null
+
+# 7. Publier le taux de change et les règles réglementaires (en tant qu'Administrateur)
+curl -s -X POST "$BASE/api/exchange-rates" -H "Content-Type: application/json" -H "X-User-Id: $ADMIN_ID" -d '{
   "currencyCode":"EUR","rateToDzd":146.50,"validFrom":"2026-09-01","source":"E2E TEST"
 }' > /dev/null
-curl -s -X POST "$BASE/api/exchange-rates" -H "Content-Type: application/json" -d '{
-  "currencyCode":"E2Z","rateToDzd":146.50,"validFrom":"2026-09-01","source":"E2E TEST (devise fictive du dossier de test)"
-}' > /dev/null
+curl -s -X POST "$BASE/api/exchange-rates" -H "Content-Type: application/json" -H "X-User-Id: $ADMIN_ID" -d "{
+  \"currencyCode\":\"$FAKE_CCY\",\"rateToDzd\":146.50,\"validFrom\":\"2026-09-01\",\"source\":\"E2E TEST (devise fictive du dossier de test)\"
+}" > /dev/null
 
 for HS in 8708999000 8421299000; do
   RATE=15; [ "$HS" = "8421299000" ] && RATE=5
-  curl -s -X POST "$BASE/api/regulatory/rules" -H "Content-Type: application/json" -d "{
+  curl -s -X POST "$BASE/api/regulatory/rules" -H "Content-Type: application/json" -H "X-User-Id: $ADMIN_ID" -d "{
     \"taxCode\":\"DD\",\"hsCode10\":\"$HS\",\"originCountryIso2\":\"CN\",\"ratePercent\":$RATE,
     \"validFrom\":\"2026-01-01\",\"legalSourceTitle\":\"E2E TEST — Code des Douanes\",\"articleReference\":\"Art. 9\"
   }" > /dev/null
-  curl -s -X POST "$BASE/api/regulatory/rules" -H "Content-Type: application/json" -d "{
+  curl -s -X POST "$BASE/api/regulatory/rules" -H "Content-Type: application/json" -H "X-User-Id: $ADMIN_ID" -d "{
     \"taxCode\":\"TVA\",\"hsCode10\":\"$HS\",\"ratePercent\":19,\"calculationBase\":\"VALEUR_DOUANE_PLUS_DD\",
     \"validFrom\":\"2026-01-01\",\"legalSourceTitle\":\"E2E TEST — CTCA\",\"articleReference\":\"Art. 19\"
   }" > /dev/null
 done
-pass "Publication du taux de change et des règles réglementaires (DD, TVA)"
+pass "Publication du taux de change et des règles réglementaires (DD, TVA) en tant qu'Administrateur"
 
 # 8. Ajouter un frais avec répartition au poids
 curl -s -X POST "$BASE/api/imports/$IMPORT_ID/fees" -H "Content-Type: application/json" -d '{
@@ -114,7 +133,26 @@ curl -s -o /tmp/e2e_export.pdf "$BASE/api/imports/$IMPORT_ID/export/pdf"
 MAGIC=$(head -c 5 /tmp/e2e_export.pdf)
 [ "$MAGIC" = "%PDF-" ] && pass "Export PDF généré (fichier PDF valide)" || fail "Export PDF invalide"
 
-# 13. Nettoyage des données de test
+# 13. Vérifier le rapprochement automatique du catalogue produit (Section 31 & 32)
+curl -s -X POST "$BASE/api/companies/$COMPANY_ID/products" -H "Content-Type: application/json" -d '{
+  "reference":"PROD-A","designation":"Catalogue existant","hsCode10":"8708999000","originCountryIso2":"CN"
+}' > /dev/null
+CATALOG_OUTCOME=$(curl -s -X POST "$BASE/api/imports/$IMPORT_ID/excel/confirm" \
+  -F "file=@samples/Facture_Fournisseur_X_Import.xlsx" \
+  -F 'mapping={"reference":0,"designation":1,"quantity":2,"unitPrice":3,"currency":4}' \
+  -F "supplierName=E2E SUPPLIER" -F "saveAsTemplate=false")
+MATCHED=$(echo "$CATALOG_OUTCOME" | python3 -c "import sys,json;print(json.load(sys.stdin)['data']['matchedCatalogCount'])")
+[ "$MATCHED" = "1" ] && pass "Rapprochement automatique du catalogue produit (1 référence reconnue)" || fail "Rapprochement catalogue incorrect (obtenu: $MATCHED)"
+
+# 14. Vérifier l'historique des versions réglementaires
+curl -s -X POST "$BASE/api/regulatory/rules" -H "Content-Type: application/json" -H "X-User-Id: $ADMIN_ID" -d '{
+  "taxCode":"DD","hsCode10":"8708999000","originCountryIso2":"CN","ratePercent":18,
+  "validFrom":"2027-01-01","legalSourceTitle":"E2E TEST — Nouvelle version","articleReference":"Art. 9"
+}' > /dev/null
+DIFF_COUNT=$(curl -s "$BASE/api/regulatory/rules/history/8708999000/DD" | python3 -c "import sys,json;print(len(json.load(sys.stdin)['data']['diffs']))")
+[ "$DIFF_COUNT" -ge "1" ] && pass "Historique des versions réglementaires disponible ($DIFF_COUNT écart(s))" || fail "Aucun écart d'historique détecté"
+
+# 15. Nettoyage des données de test
 curl -s -X DELETE "$BASE/api/companies/$COMPANY_ID" > /dev/null
 pass "Nettoyage des données de test"
 
