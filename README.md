@@ -30,7 +30,9 @@ règle douanière.
    méthodes prévues, et ses drapeaux d'inclusion (valeur en douane / coût de revient).
 8. Gérer les **règles réglementaires versionnées** (Code SH, taxe, taux, régime, dates, source
    juridique) et les **taux de change officiels** — sans qu'aucun taux ne soit jamais codé en dur : si
-   une règle manque, le calcul est **bloqué** avec le message `INFORMATION NON DÉTERMINÉE`.
+   une règle manque, le calcul est **bloqué** avec le message `INFORMATION NON DÉTERMINÉE`. Seul un
+   utilisateur au rôle **Administrateur** peut publier une règle ou un taux (HTTP 403 sinon), et
+   l'historique complet des versions successives (taux, dates, source) reste consultable par Code SH.
 9. Lancer le calcul complet : valeur en douane, droit de douane, taxes additionnelles, TVA, coût
    douanier total, coût de revient économique par ligne et consolidé, coût unitaire.
 10. Visualiser les anomalies (`INFO`, `AVERTISSEMENT`, `ERREUR`, `BLOCAGE`), notamment la comparaison
@@ -39,10 +41,14 @@ règle douanière.
 11. Exporter un **rapport Excel réel** à 5 feuilles (`DETAIL_ARTICLES`, `RECAPITULATIF`, `FRAIS`,
     `TAXES`, `CONTROLES`) et un **rapport PDF réel**, générés dynamiquement à partir du dernier calcul.
 12. Fermer l'application et la rouvrir : toutes les données (entreprises, dossiers, lignes, frais,
-    règles, calculs, audit) sont conservées dans une base **SQLite persistante sur disque**.
+    règles, calculs, audit, utilisateurs) sont conservées dans une base **SQLite persistante sur disque**.
+13. Gérer les **utilisateurs et leurs rôles** (Administrateur / Utilisateur / Consultation) et rattacher
+    automatiquement chaque référence Excel déjà connue au **catalogue produit** de l'entreprise (Code SH
+    et origine auto-complétés), avec proposition d'ajout au catalogue pour les nouvelles références.
 
 Un script de test de bout en bout automatisé (`tests/e2e/run_e2e_workflow_test.sh`) valide l'intégralité
-de ce pipeline (13 vérifications, toutes au vert).
+de ce pipeline (**16 vérifications, toutes au vert**), y compris le refus de publication réglementaire
+par un utilisateur non-Administrateur.
 
 ---
 
@@ -140,6 +146,15 @@ Cette base C# **compile conceptuellement** (aucune dépendance externe manquante
 ci-dessous) ; sa correction et son exécution effective nécessitent un poste disposant du SDK .NET 8.
 
 ---
+
+## 5bis. Utilisateurs & Rôles
+
+Un compte **Administrateur Principal** est créé automatiquement au tout premier démarrage (table
+`users` vide). Chaque appel API sensible (publication d'une règle réglementaire ou d'un taux de change)
+exige un en-tête `X-User-Id` correspondant à un utilisateur existant au rôle `ADMINISTRATEUR` ; à défaut,
+l'API répond `403`. L'interface propose un sélecteur « Utilisateur actif » à côté du sélecteur
+d'entreprise, et un écran **Utilisateurs & Rôles** pour créer/modifier/supprimer des comptes (le dernier
+compte Administrateur ne peut pas être supprimé).
 
 ## 6. Règles de conception respectées
 
