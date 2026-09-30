@@ -45,6 +45,13 @@ règle douanière.
 13. Gérer les **utilisateurs et leurs rôles** (Administrateur / Utilisateur / Consultation) et rattacher
     automatiquement chaque référence Excel déjà connue au **catalogue produit** de l'entreprise (Code SH
     et origine auto-complétés), avec proposition d'ajout au catalogue pour les nouvelles références.
+14. **Modifier** une entreprise, un produit, un article ou un frais déjà enregistré directement depuis
+    l'interface (bouton « Modifier » sur chaque ligne, formulaire pré-rempli), puis **recalculer** le
+    dossier — aucune édition de fichier ou de base de données n'est requise.
+15. **Comprendre le détail de chaque calcul** : sur l'écran de résultats, le bouton « Voir le détail »
+    de chaque article déplie la formation complète du montant (prix fournisseur converti, frais répartis
+    un par un, valeur en douane, droit de douane avec sa source légale, chaque taxe additionnelle avec sa
+    base et sa référence réglementaire, TVA, puis coût de revient unitaire final).
 
 Un script de test de bout en bout automatisé (`tests/e2e/run_e2e_workflow_test.sh`) valide l'intégralité
 de ce pipeline (**16 vérifications, toutes au vert**), y compris le refus de publication réglementaire
