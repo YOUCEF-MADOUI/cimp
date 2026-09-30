@@ -40,7 +40,10 @@ public sealed class RegulatoryRule
     public required TaxableBaseType CalculationBase { get; init; }
     public string? Condition { get; init; }
     public required DateOnly ValidFrom { get; init; }
-    public DateOnly? ValidTo { get; init; }
+    // ValidTo reste modifiable UNIQUEMENT pour "fermer" une période lors de la publication d'une
+    // nouvelle version réglementaire (Sections 19 & 21) — jamais pour modifier le taux/la base/la source
+    // de la règle elle-même, qui restent immuables une fois publiés (toute évolution = nouvelle ligne).
+    public DateOnly? ValidTo { get; set; }
     public int Priority { get; init; } = 100;
     public required LegalSource LegalSource { get; init; }
     public required RegulatoryRuleStatus Status { get; set; }
