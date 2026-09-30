@@ -386,6 +386,32 @@ function switchImportSection(key) {
   render();
 }
 
+// Champs / informations à rassembler selon l'Incoterm sélectionné (V1 : EXW, FOB, CFR).
+// Architecture extensible : un nouvel Incoterm n'ajoute qu'une entrée dans cette table,
+// sans toucher au moteur de calcul.
+const INCOTERM_GUIDANCE = {
+  EXW: {
+    title: 'EXW — Ex Works (sortie usine)',
+    text: 'Le prix fournisseur ne comprend ni transport, ni assurance, ni frais de chargement. Vous devez ajouter vous-même, dans la section « Frais », au minimum : le transport principal (fret international) et, le cas échéant, l\'assurance, jusqu\'au point d\'introduction sur le territoire douanier algérien (Art. 16 octies CDA). Sans ces frais, la valeur en douane sera sous-évaluée.',
+    suggestedFees: ['Fret international', 'Assurance transport', 'Transport pré-acheminement', 'Frais de chargement']
+  },
+  FOB: {
+    title: 'FOB — Free On Board (port d\'embarquement convenu)',
+    text: 'Le prix fournisseur couvre la marchandise jusqu\'au chargement à bord au port d\'embarquement. Vous devez ajouter le fret maritime/aérien international et l\'assurance transport comme frais, pour qu\'ils soient inclus dans la valeur en douane.',
+    suggestedFees: ['Fret international', 'Assurance transport']
+  },
+  CFR: {
+    title: 'CFR — Cost and Freight (coût et fret)',
+    text: 'Le prix fournisseur inclut déjà le fret international jusqu\'au port de destination. N\'ajoutez pas de frais « Fret international » supplémentaire inclus dans la valeur en douane (risque de double comptage) — seule l\'assurance transport, si elle n\'est pas incluse, doit être ajoutée séparément.',
+    suggestedFees: ['Assurance transport']
+  }
+};
+
+function incotermGuidanceHtml(incoterm) {
+  const g = INCOTERM_GUIDANCE[incoterm] || INCOTERM_GUIDANCE.FOB;
+  return `<h3>ℹ️ ${esc(g.title)}</h3><p>${esc(g.text)}</p><p class="muted">Frais généralement à prévoir : ${g.suggestedFees.map(esc).join(', ')}.</p>`;
+}
+
 function renderHeaderSection(op) {
   return `
     <div class="card">
@@ -398,7 +424,7 @@ function renderHeaderSection(op) {
           <div><label>Pays d'origine par défaut (ISO2)</label><input name="defaultOriginCountryIso2" maxlength="2" value="${esc(op.default_origin_country_iso2 || '')}" /></div>
           <div><label>Devise principale</label><input name="mainCurrencyCode" value="${esc(op.main_currency_code)}" /></div>
           <div><label>Incoterm</label>
-            <select name="incoterm">
+            <select name="incoterm" id="incotermSelect">
               ${['EXW', 'FOB', 'CFR'].map(v => `<option value="${v}" ${op.incoterm === v ? 'selected' : ''}>${v}</option>`).join('')}
             </select>
           </div>
@@ -406,6 +432,7 @@ function renderHeaderSection(op) {
           <div><label>Mode de transport</label><input name="transportMode" value="${esc(op.transport_mode || '')}" /></div>
           <div><label>N° Facture</label><input name="invoiceNumber" value="${esc(op.invoice_number || '')}" /></div>
         </div>
+        <div id="incotermGuidance" class="card" style="background:#eff6ff;">${incotermGuidanceHtml(op.incoterm)}</div>
         <div class="card" style="background:#f8fafc;">
           <h3>Taux de change (Art. 16 decies Code des Douanes)</h3>
           <div class="grid grid-3">
@@ -733,6 +760,12 @@ function renderCalcResult(result, op, company) {
 }
 
 function wireImportSectionEvents(op, lines, fees) {
+  const incotermSelect = document.getElementById('incotermSelect');
+  if (incotermSelect) incotermSelect.addEventListener('change', (e) => {
+    const zone = document.getElementById('incotermGuidance');
+    if (zone) zone.innerHTML = incotermGuidanceHtml(e.target.value);
+  });
+
   const headerForm = document.getElementById('headerForm');
   if (headerForm) headerForm.addEventListener('submit', async (e) => {
     e.preventDefault();
