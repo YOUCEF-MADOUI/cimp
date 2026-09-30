@@ -5,11 +5,18 @@ droits de douane, taxes (DAPS, TIC…), TVA à l'importation, valeur en douane, 
 d'approche, anomalies, et rapports Excel/PDF — sans jamais coder en dur un taux, une exonération ou une
 règle douanière.
 
-> ⚠️ **Important** : la présente version livrée et **réellement fonctionnelle** est une application
-> web full-stack (Node.js + base de données SQLite persistante), utilisable dès maintenant depuis un
-> navigateur. Une architecture C#/.NET 8 complète (voir plus bas) documente également la cible native
-> Windows, mais n'a pas pu être compilée ni exécutée dans cet environnement d'exécution (SDK .NET non
-> installable — accès réseau restreint, voir section **Limitations**).
+> ⚠️ **Important — deux livrables** :
+> 1. **Application Windows native C#/.NET 8 (WPF/MVVM)** — `src/ImportCostAlgeria.Presentation` —
+>    c'est désormais la cible principale demandée. Le code complet (composition DI, écrans, ViewModels,
+>    XAML) est écrit et branché sur les moteurs métier réels (`CalculationEngine`, `RegulatoryEngine`,
+>    `Database` EF Core, `ExcelEngine`, `Reporting`, `Audit`, `AI`). **Elle n'a pas pu être compilée ni
+>    exécutée dans ce sandbox Linux** (le SDK .NET et la compilation XAML→BAML nécessitent Windows —
+>    voir section 5 et section **Limitations**) : elle doit être ouverte et lancée depuis **Visual
+>    Studio 2022 sous Windows** pour être validée.
+> 2. **Application web full-stack (Node.js + SQLite)** — `src/ImportCostAlgeria.Presentation/WebPreview`
+>    — reste disponible et **réellement testée de bout en bout** dans ce sandbox ; elle sert de
+>    référence fonctionnelle exécutable pour valider le comportement attendu de chaque écran avant de
+>    les reproduire à l'identique côté WPF.
 
 ---
 
@@ -126,31 +133,56 @@ qu'orchestrer les appels, conformément à la séparation stricte des responsabi
 
 ---
 
-## 5. Architecture de référence C# / .NET 8 (spécification complète)
+## 5. Application Windows native C# / .NET 8 (WPF / MVVM) — cible principale
 
-Le projet documente également, et implémente partiellement en C#, l'architecture cible pour une
-application Windows native, conforme aux dix modules demandés :
+`src/ImportCostAlgeria.Presentation` est désormais un vrai projet **WPF** (`Microsoft.NET.Sdk.WindowsDesktop`,
+`net8.0-windows`, `UseWPF=true`, `OutputType=WinExe`, `AssemblyName=CIMP`), architecturé en couches
+strictement séparées :
 
 | Module / Projet | Rôle |
 | :--- | :--- |
-| `src/ImportCostAlgeria.Core` | Entités métier, `Money`, catalogue de frais, champs dynamiques par Incoterm. |
+| `src/ImportCostAlgeria.Core` | Entités métier (éditables depuis l'UI), catalogue de frais, champs dynamiques par Incoterm. |
 | `src/ImportCostAlgeria.RegulatoryEngine` | Moteur réglementaire versionné, hiérarchie des sources juridiques. |
 | `src/ImportCostAlgeria.CalculationEngine` | Conversion devises, valeur en douane, droits/taxes, répartition des frais. |
-| `src/ImportCostAlgeria.ExcelEngine` | Détection d'en-têtes, mapping interactif, templates fournisseurs. |
-| `src/ImportCostAlgeria.Reporting` | Génération de rapports Excel/PDF. |
-| `src/ImportCostAlgeria.Audit` | Journalisation immuable. |
-| `src/ImportCostAlgeria.AI` | Classification SH par IA, assistant réglementaire, simulateur. |
-| `src/ImportCostAlgeria.Database` | `DbContext` EF Core 8 avec isolation multi-entreprise. |
-| `src/ImportCostAlgeria.Presentation` | ViewModels MVVM pour un client natif (WPF / Blazor Desktop). |
-| `tests/ImportCostAlgeria.UnitTests` | Suite xUnit (28 tests, Sections 42, V1.1, V1.2). |
+| `src/ImportCostAlgeria.ExcelEngine` | Lecture réelle de fichiers `.xlsx`/`.xls`/`.csv`, détection d'en-têtes, mapping interactif, templates fournisseurs persistés. |
+| `src/ImportCostAlgeria.Reporting` | Génération réelle de fichiers Excel (ClosedXML, 5 feuilles) et PDF (QuestPDF). |
+| `src/ImportCostAlgeria.Audit` | Journalisation persistante et immuable (EF Core). |
+| `src/ImportCostAlgeria.AI` | Classification SH par IA (confirmation humaine obligatoire), assistant réglementaire, simulateur. |
+| `src/ImportCostAlgeria.Database` | `DbContext` EF Core 8, SQLite auto-créée au premier démarrage (`%LOCALAPPDATA%\CIMP\cimp.db`), isolation multi-entreprise, tous les dépôts CRUD. |
+| `src/ImportCostAlgeria.Presentation` | **Application WPF/MVVM** : `App.xaml(.cs)` (composition DI), écrans Connexion / Tableau de bord / Entreprises / Importations / Détail d'importation (Articles, Frais, Taux de change, Calcul & Contrôles) / Réglementation / Taux de change / Journal d'audit / Paramètres & Utilisateurs, assistant d'import Excel, boîtes de dialogue de confirmation SH et de détail d'article. |
+| `tests/ImportCostAlgeria.UnitTests` | Suite xUnit (28 tests, Sections 42, V1.1, V1.2) — sur les moteurs métier, indépendante de l'UI. |
 
-Base de données SQL Server complète : `database/01_ImportCostAlgeria_Schema.sql` (21 tables, schémas
-`core`, `reg`, `excel`, `calc`, `ai`, `audit`) et `database/02_Seed_Referentiel_Structure.sql`.
-Spécification juridique et fonctionnelle complète : `docs/SPECIFICATION_COMPLETE_A_A_H.md`.
+Base de données SQL Server alternative (schéma de référence) : `database/01_ImportCostAlgeria_Schema.sql`
+et `database/02_Seed_Referentiel_Structure.sql`. Spécification juridique et fonctionnelle complète :
+`docs/SPECIFICATION_COMPLETE_A_A_H.md`.
 
-Cette base C# **compile conceptuellement** (aucune dépendance externe manquante dans le code écrit) mais
-**n'a pas pu être compilée avec `dotnet build`** dans le present environnement (voir Limitations
-ci-dessous) ; sa correction et son exécution effective nécessitent un poste disposant du SDK .NET 8.
+**Aucune logique métier n'est écrite dans la couche Presentation** : les ViewModels appellent
+exclusivement `Services/EngineFactory` (câblage pur des moteurs à partir des dépôts EF Core) et les
+dépôts de `ImportCostAlgeria.Database.Repositories`.
+
+⚠️ **Cette application n'a pas pu être compilée ni exécutée dans ce sandbox Linux** : un projet WPF
+nécessite la compilation XAML→BAML, qui n'est possible que sous Windows avec le SDK .NET 8 Desktop, et
+aucun SDK .NET n'est installable dans cet environnement (réseau sortant bloqué vers les domaines
+Microsoft/.NET — vérifié à nouveau cette session). **Elle doit être ouverte, compilée et lancée (F5)
+depuis Visual Studio 2022 sous Windows par l'utilisateur** — voir section 5bis pour la procédure exacte.
+
+### 5bis. Lancer l'application Windows depuis Visual Studio 2022
+
+1. Prérequis : Windows 10/11, **Visual Studio 2022** (édition Community suffit) avec la charge de travail
+   **".NET Desktop Development"** installée (fournit le SDK .NET 8 et le compilateur XAML).
+2. Cloner le dépôt puis ouvrir `ImportCostAlgeria.sln` (ou le dossier `src/` — VS2022 sait ouvrir un
+   dossier contenant plusieurs `.csproj`) dans Visual Studio.
+3. Dans l'Explorateur de solutions, clic droit sur `ImportCostAlgeria.Presentation` → **Définir comme
+   projet de démarrage**.
+4. Appuyer sur **F5** (ou "Démarrer" avec le profil `CIMP`). Visual Studio restaure automatiquement les
+   paquets NuGet (`Microsoft.EntityFrameworkCore.Sqlite`, `ClosedXML`, `QuestPDF`,
+   `Microsoft.Extensions.DependencyInjection`, etc.), compile les 9 projets et lance `CIMP.exe`.
+5. Au tout premier lancement, la base SQLite est créée automatiquement dans
+   `%LOCALAPPDATA%\CIMP\cimp.db` et un compte **Administrateur initial** est affiché à l'écran
+   (identifiant `admin`, mot de passe généré) — à noter puis utiliser sur l'écran de connexion.
+6. Après connexion, l'écran **Entreprises** permet de créer une première entreprise ; une fois
+   sélectionnée dans le sélecteur d'entreprise en haut de la fenêtre, tous les autres écrans
+   (Importations, Réglementation, Taux de change, Paramètres) deviennent accessibles.
 
 ---
 
@@ -184,13 +216,18 @@ compte Administrateur ne peut pas être supprimé).
 
 ### Limitations connues
 * Le SDK **.NET 8 n'a pas pu être installé** dans le sandbox d'exécution (les domaines de
-  téléchargement Microsoft/.NET sont bloqués en sortie réseau, alors que le registre npm est
-  accessible). En conséquence, la partie C#/.NET n'a **pas été compilée ni testée par `dotnet test`**
-  dans cette session — elle reste une architecture de référence écrite mais non exécutée. L'application
-  réellement testée de bout en bout est la version Node.js/SQLite.
-* Pas d'authentification multi-utilisateurs ni de gestion fine des rôles dans l'interface web actuelle
-  (un seul utilisateur implicite `admin`) — le modèle de données et l'architecture le permettent, mais
-  l'écran de gestion des comptes utilisateurs n'est pas encore construit.
+  téléchargement Microsoft/.NET sont bloqués en sortie réseau — vérifié à nouveau lors de l'écriture de
+  l'application WPF, alors que le registre npm est accessible). En conséquence, **`dotnet restore`,
+  `dotnet build` et `dotnet test` n'ont pas pu être exécutés réellement** sur `ImportCostAlgeria.sln`
+  dans cette session, et la compilation XAML→BAML de `ImportCostAlgeria.Presentation` (WPF) nécessite de
+  toute façon Windows. Tout le code a été relu manuellement (types, signatures, usings, appariement des
+  bindings XAML avec les propriétés des ViewModels, équilibrage des accolades, validité XML de chaque
+  `.xaml`) mais **aucune de ces vérifications ne remplace une compilation réelle** — la première
+  compilation sous Visual Studio peut donc révéler des erreurs résiduelles à corriger (voir section
+  finale "Problèmes connus").
+* L'application web Node.js/SQLite (`WebPreview`) reste, elle, **réellement compilée, lancée et testée
+  de bout en bout** dans ce sandbox (script `tests/e2e/run_e2e_workflow_test.sh`, 16/16) et sert de
+  référence de comportement pour la version WPF.
 * Incoterms V1 uniquement : `EXW`, `FOB`, `CFR` (l'architecture des frais/valeur en douane est conçue
   pour être étendue à `FCA`, `FAS`, `CIF`, `CPT`, `CIP`, `DAP`, `DPU`, `DDP`).
 * Poids/volume restent optionnels : les méthodes de répartition « Par poids »/« Par volume » nécessitent
@@ -200,9 +237,10 @@ compte Administrateur ne peut pas être supprimé).
 * Pas de reconnaissance OCR de factures/PDF fournisseur (V2 prévue).
 
 ### Roadmap recommandée
-1. Compiler et exécuter la solution .NET 8 sur un poste disposant du SDK, puis migrer le moteur métier
-   Node.js vers celui-ci si un client Windows natif est requis (le code JS peut servir de spécification
-   exécutable pour la portée fonctionnelle exacte).
+1. Ouvrir la solution dans Visual Studio 2022 sous Windows (voir section 5bis), corriger les éventuelles
+   erreurs de compilation résiduelles, puis exécuter `dotnet test` sur `tests/ImportCostAlgeria.UnitTests`.
+2. Dérouler le scénario E2E Windows décrit en section 5bis (créer une entreprise → importer un Excel →
+   calculer → exporter) pour valider le comportement réel face au comportement déjà validé côté Node.js.
 2. Authentification utilisateurs + rôles (Administrateur / Utilisateur / Consultation) sur l'API REST.
 3. Incoterms `CIF`, `FCA`, `CPT`, `CIP`, `DAP`, `DDP` avec déductions Art. 16 octies § 3 CDA.
 4. Multi-conteneurs et gestion documentaire (Packing List, B/L, certificats d'origine).
