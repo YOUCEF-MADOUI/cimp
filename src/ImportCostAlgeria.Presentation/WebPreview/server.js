@@ -8,7 +8,7 @@ const fs = require('fs');
 const express = require('express');
 const multer = require('multer');
 
-const { db, uuid, nowIso, logAudit } = require('./lib/db');
+const { db, uuid, nowIso, logAudit, ensureDefaultAdmin } = require('./lib/db');
 const reg = require('./lib/regulatoryEngine');
 const excel = require('./lib/excelEngine');
 const calc = require('./lib/calculationEngine');
@@ -22,8 +22,76 @@ const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 15 
 app.use(express.json({ limit: '5mb' }));
 app.use(express.static(path.join(__dirname, 'public')));
 
+ensureDefaultAdmin();
+
 function ok(res, data) { res.json({ success: true, data }); }
 function fail(res, code, message) { res.status(code).json({ success: false, error: message }); }
+
+/** Récupère l'utilisateur agissant depuis l'en-tête X-User-Id (ou req.body.actingUserId) et vérifie son rôle. */
+function resolveActingUser(req) {
+  const userId = req.get('X-User-Id') || (req.body && req.body.actingUserId) || null;
+  if (!userId) return null;
+  return db.prepare('SELECT * FROM users WHERE id = ?').get(userId) || null;
+}
+
+/**
+ * Garde de sécurité (Section 21 & 39) : seul un utilisateur au rôle ADMINISTRATEUR peut publier
+ * une règle réglementaire ou un taux de change officiel. Retourne l'utilisateur si autorisé, sinon
+ * répond 403 et retourne null.
+ */
+function requireAdmin(req, res) {
+  const user = resolveActingUser(req);
+  if (!user) {
+    fail(res, 403, "Utilisateur non identifié. Sélectionnez votre profil utilisateur (menu Utilisateurs) avant de publier une règle.");
+    return null;
+  }
+  if (user.role !== 'ADMINISTRATEUR') {
+    fail(res, 403, `Seul un utilisateur avec le rôle Administrateur peut effectuer cette action (rôle actuel : ${user.role}).`);
+    return null;
+  }
+  return user;
+}
+
+// ---------------------------------------------------------------------------
+// UTILISATEURS & RÔLES (Sections 21, 39 — Administrateur / Utilisateur / Consultation)
+// ---------------------------------------------------------------------------
+app.get('/api/users', (req, res) => {
+  ok(res, db.prepare('SELECT * FROM users ORDER BY role, full_name').all());
+});
+
+app.post('/api/users', (req, res) => {
+  const { fullName, role, companyId } = req.body || {};
+  if (!fullName || !fullName.trim()) return fail(res, 400, 'Le nom complet est obligatoire.');
+  const validRoles = ['ADMINISTRATEUR', 'UTILISATEUR', 'CONSULTATION'];
+  const finalRole = validRoles.includes(role) ? role : 'UTILISATEUR';
+  const id = uuid();
+  db.prepare(`INSERT INTO users (id, company_id, full_name, role, created_at) VALUES (?, ?, ?, ?, ?)`)
+    .run(id, companyId || null, fullName.trim(), finalRole, nowIso());
+  logAudit('user', id, 'CREATED', req.body);
+  ok(res, db.prepare('SELECT * FROM users WHERE id = ?').get(id));
+});
+
+app.put('/api/users/:id', (req, res) => {
+  const existing = db.prepare('SELECT * FROM users WHERE id = ?').get(req.params.id);
+  if (!existing) return fail(res, 404, 'Utilisateur introuvable.');
+  const { fullName, role } = req.body || {};
+  const validRoles = ['ADMINISTRATEUR', 'UTILISATEUR', 'CONSULTATION'];
+  db.prepare(`UPDATE users SET full_name=?, role=? WHERE id=?`)
+    .run(fullName ?? existing.full_name, validRoles.includes(role) ? role : existing.role, req.params.id);
+  logAudit('user', req.params.id, 'UPDATED', req.body);
+  ok(res, db.prepare('SELECT * FROM users WHERE id = ?').get(req.params.id));
+});
+
+app.delete('/api/users/:id', (req, res) => {
+  const remainingAdmins = db.prepare(`SELECT COUNT(*) as c FROM users WHERE role='ADMINISTRATEUR' AND id != ?`).get(req.params.id).c;
+  const target = db.prepare('SELECT * FROM users WHERE id = ?').get(req.params.id);
+  if (target && target.role === 'ADMINISTRATEUR' && remainingAdmins === 0) {
+    return fail(res, 400, "Impossible de supprimer le dernier compte Administrateur du système.");
+  }
+  db.prepare('DELETE FROM users WHERE id = ?').run(req.params.id);
+  logAudit('user', req.params.id, 'DELETED', {});
+  ok(res, { deleted: true });
+});
 
 // ---------------------------------------------------------------------------
 // ENTREPRISES (Section 5 — CRUD complet)
@@ -106,8 +174,10 @@ app.delete('/api/products/:id', (req, res) => {
 app.get('/api/exchange-rates', (req, res) => ok(res, reg.listExchangeRates()));
 
 app.post('/api/exchange-rates', (req, res) => {
+  const admin = requireAdmin(req, res);
+  if (!admin) return;
   try {
-    const created = reg.publishExchangeRate(req.body, 'admin');
+    const created = reg.publishExchangeRate(req.body, admin.full_name);
     ok(res, created);
   } catch (e) { fail(res, 400, e.message); }
 });
@@ -120,9 +190,27 @@ app.get('/api/regulatory/rules', (req, res) => {
   ok(res, reg.listAllRules());
 });
 
+// Historique détaillé des versions successives d'une taxe pour un Code SH donné (Section 19)
+app.get('/api/regulatory/rules/history/:hsCode10/:taxCode', (req, res) => {
+  const rows = reg.listRulesForHs(req.params.hsCode10).filter(r => r.tax_code === req.params.taxCode)
+    .sort((a, b) => a.valid_from.localeCompare(b.valid_from));
+  const diffs = [];
+  for (let i = 1; i < rows.length; i++) {
+    diffs.push({
+      oldVersion: rows[i - 1].version_code, oldRate: rows[i - 1].rate_percent, oldValidFrom: rows[i - 1].valid_from, oldValidTo: rows[i - 1].valid_to,
+      newVersion: rows[i].version_code, newRate: rows[i].rate_percent, newValidFrom: rows[i].valid_from,
+      deltaPercentagePoints: Math.round((rows[i].rate_percent - rows[i - 1].rate_percent) * 100) / 100,
+      legalSource: `${rows[i].legal_source_title} (${rows[i].jora_reference || ''})`
+    });
+  }
+  ok(res, { versions: rows, diffs });
+});
+
 app.post('/api/regulatory/rules', (req, res) => {
+  const admin = requireAdmin(req, res);
+  if (!admin) return;
   try {
-    const created = reg.publishNewRule(req.body, 'admin');
+    const created = reg.publishNewRule(req.body, admin.full_name);
     ok(res, created);
   } catch (e) { fail(res, 400, e.message); }
 });
@@ -394,8 +482,22 @@ app.post('/api/imports/:id/excel/confirm', upload.single('file'), (req, res) => 
     excel.saveTemplate(operation.company_id, supplierName, signature, mapping);
   }
 
-  // Insertion des lignes valides en base (remplace les lignes existantes issues d'un import précédent)
-  const insertable = structured.filter(r => !r.hasErrors);
+  // Rapprochement Catalogue Produits (Section 31 & 32) : une référence déjà connue de l'entreprise
+  // complète automatiquement le Code SH / Origine si l'Excel ne les fournit pas ; une référence
+  // inconnue est signalée pour proposition d'ajout au catalogue après import.
+  const catalogProducts = db.prepare('SELECT * FROM products WHERE company_id = ?').all(operation.company_id);
+  const catalogByRef = new Map(catalogProducts.map(p => [p.reference.toUpperCase(), p]));
+  const newProductCandidates = [];
+
+  const insertable = structured.filter(r => !r.hasErrors).map(r => {
+    const match = catalogByRef.get((r.reference || '').toUpperCase());
+    if (match) {
+      return { ...r, hsCode: r.hsCode || match.hs_code10, origin: r.origin || match.origin_country_iso2, matchedCatalog: true };
+    }
+    newProductCandidates.push({ reference: r.reference, designation: r.designation, hsCode10: r.hsCode, originCountryIso2: r.origin, currencyCode: r.currency, defaultUnitPrice: r.unitPrice });
+    return { ...r, matchedCatalog: false };
+  });
+
   const startLineNumber = nextLineNumber(req.params.id);
   const insertStmt = db.prepare(`INSERT INTO import_lines
     (id, import_operation_id, line_number, product_reference, designation, quantity, unit_purchase_price, currency_code,
@@ -410,9 +512,26 @@ app.post('/api/imports/:id/excel/confirm', upload.single('file'), (req, res) => 
     );
   });
 
-  logAudit('excel_import', req.params.id, 'IMPORTED', { insertedCount: insertable.length, errorCount: errors.length });
+  logAudit('excel_import', req.params.id, 'IMPORTED', { insertedCount: insertable.length, errorCount: errors.length, matchedCatalog: insertable.filter(r => r.matchedCatalog).length, newCandidates: newProductCandidates.length });
 
-  ok(res, { insertedCount: insertable.length, errors, totalRows: structured.length });
+  ok(res, { insertedCount: insertable.length, errors, totalRows: structured.length, matchedCatalogCount: insertable.filter(r => r.matchedCatalog).length, newProductCandidates });
+});
+
+// Ajout en masse au catalogue produit des références nouvellement rencontrées lors d'un import Excel
+app.post('/api/companies/:companyId/products/bulk', (req, res) => {
+  const items = Array.isArray(req.body?.items) ? req.body.items : [];
+  let created = 0, skipped = 0;
+  for (const it of items) {
+    if (!it.reference || !it.designation) { skipped++; continue; }
+    const exists = db.prepare('SELECT id FROM products WHERE company_id = ? AND reference = ?').get(req.params.companyId, it.reference);
+    if (exists) { skipped++; continue; }
+    db.prepare(`INSERT INTO products (id, company_id, reference, designation, hs_code10, origin_country_iso2, unit, default_unit_price, currency_code, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+      .run(uuid(), req.params.companyId, it.reference, it.designation, it.hsCode10 || null, it.originCountryIso2 || null, 'U', it.defaultUnitPrice || null, it.currencyCode || null, nowIso(), nowIso());
+    created++;
+  }
+  logAudit('product', null, 'BULK_CREATED_FROM_EXCEL', { created, skipped });
+  ok(res, { created, skipped });
 });
 
 app.get('/api/companies/:companyId/excel-templates', (req, res) => {
