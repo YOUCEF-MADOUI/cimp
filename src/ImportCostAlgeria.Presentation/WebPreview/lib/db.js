@@ -163,6 +163,14 @@ CREATE TABLE IF NOT EXISTS audit_log (
   user_name TEXT NOT NULL DEFAULT 'admin',
   created_at TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS users (
+  id TEXT PRIMARY KEY,
+  company_id TEXT REFERENCES companies(id) ON DELETE CASCADE,
+  full_name TEXT NOT NULL,
+  role TEXT NOT NULL DEFAULT 'UTILISATEUR',
+  created_at TEXT NOT NULL
+);
 `);
 
 /** Ajoute une colonne si elle n'existe pas déjà (migration légère, sans perte de données). */
@@ -182,6 +190,15 @@ function uuid() {
   return crypto.randomUUID();
 }
 
+/** Crée un compte Administrateur par défaut au tout premier démarrage (table users vide). */
+function ensureDefaultAdmin() {
+  const count = db.prepare('SELECT COUNT(*) as c FROM users').get().c;
+  if (count === 0) {
+    db.prepare(`INSERT INTO users (id, company_id, full_name, role, created_at) VALUES (?, NULL, ?, 'ADMINISTRATEUR', ?)`)
+      .run(uuid(), 'Administrateur Principal', nowIso());
+  }
+}
+
 function nowIso() {
   return new Date().toISOString();
 }
@@ -194,4 +211,4 @@ function logAudit(entityType, entityId, action, details) {
   stmt.run(uuid(), entityType, entityId || null, action, JSON.stringify(details || {}), 'admin', nowIso());
 }
 
-module.exports = { db, uuid, nowIso, logAudit, DB_PATH };
+module.exports = { db, uuid, nowIso, logAudit, DB_PATH, ensureDefaultAdmin };
