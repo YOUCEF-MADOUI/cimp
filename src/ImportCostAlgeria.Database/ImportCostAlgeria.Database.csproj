@@ -6,8 +6,22 @@
     <RootNamespace>ImportCostAlgeria.Database</RootNamespace>
   </PropertyGroup>
   <ItemGroup>
+    <!--
+      Choix technique (justifié) : SQLite est le fournisseur EF Core PAR DÉFAUT de l'application Windows
+      afin de garantir un fonctionnement "prêt à l'emploi" dès le premier F5 dans Visual Studio, sans
+      nécessiter l'installation préalable d'un serveur SQL Server / LocalDB sur le poste utilisateur
+      (exactement le même principe de robustesse que la référence fonctionnelle Node.js, qui utilisait
+      déjà SQLite). Le fournisseur SQL Server reste disponible (package référencé) pour les entreprises
+      qui disposent déjà d'un serveur SQL Server et souhaitent y basculer via la chaîne de connexion
+      (voir ImportCostAlgeria.Database.DbContextFactory).
+    -->
     <PackageReference Include="Microsoft.EntityFrameworkCore" Version="8.0.8" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" Version="8.0.8" />
     <PackageReference Include="Microsoft.EntityFrameworkCore.SqlServer" Version="8.0.8" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="8.0.8">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\ImportCostAlgeria.Core\ImportCostAlgeria.Core.csproj" />
