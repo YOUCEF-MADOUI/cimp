@@ -6,6 +6,11 @@
     <RootNamespace>ImportCostAlgeria.Reporting</RootNamespace>
   </PropertyGroup>
   <ItemGroup>
+    <!-- Génération réelle des fichiers d'export (Priorité 8 — Exports Excel/PDF réels, non simulés). -->
+    <PackageReference Include="ClosedXML" Version="0.104.1" />
+    <PackageReference Include="QuestPDF" Version="2024.10.3" />
+  </ItemGroup>
+  <ItemGroup>
     <ProjectReference Include="..\ImportCostAlgeria.Core\ImportCostAlgeria.Core.csproj" />
     <ProjectReference Include="..\ImportCostAlgeria.CalculationEngine\ImportCostAlgeria.CalculationEngine.csproj" />
   </ItemGroup>
