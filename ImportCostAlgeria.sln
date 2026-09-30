@@ -1,0 +1,30 @@
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.8.34330.188
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ImportCostAlgeria.Core", "src\ImportCostAlgeria.Core\ImportCostAlgeria.Core.csproj", "{A1000001-0000-0000-0000-000000000001}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ImportCostAlgeria.RegulatoryEngine", "src\ImportCostAlgeria.RegulatoryEngine\ImportCostAlgeria.RegulatoryEngine.csproj", "{A1000002-0000-0000-0000-000000000002}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ImportCostAlgeria.CalculationEngine", "src\ImportCostAlgeria.CalculationEngine\ImportCostAlgeria.CalculationEngine.csproj", "{A1000003-0000-0000-0000-000000000003}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ImportCostAlgeria.ExcelEngine", "src\ImportCostAlgeria.ExcelEngine\ImportCostAlgeria.ExcelEngine.csproj", "{A1000004-0000-0000-0000-000000000004}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ImportCostAlgeria.Audit", "src\ImportCostAlgeria.Audit\ImportCostAlgeria.Audit.csproj", "{A1000005-0000-0000-0000-000000000005}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ImportCostAlgeria.AI", "src\ImportCostAlgeria.AI\ImportCostAlgeria.AI.csproj", "{A1000006-0000-0000-0000-000000000006}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ImportCostAlgeria.Reporting", "src\ImportCostAlgeria.Reporting\ImportCostAlgeria.Reporting.csproj", "{A1000007-0000-0000-0000-000000000007}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ImportCostAlgeria.Database", "src\ImportCostAlgeria.Database\ImportCostAlgeria.Database.csproj", "{A1000008-0000-0000-0000-000000000008}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ImportCostAlgeria.Presentation", "src\ImportCostAlgeria.Presentation\ImportCostAlgeria.Presentation.csproj", "{A1000010-0000-0000-0000-000000000010}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ImportCostAlgeria.UnitTests", "tests\ImportCostAlgeria.UnitTests\ImportCostAlgeria.UnitTests.csproj", "{A1000009-0000-0000-0000-000000000009}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+EndGlobal

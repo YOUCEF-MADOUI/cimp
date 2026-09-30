@@ -1,0 +1,166 @@
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using ImportCostAlgeria.Core.Domain;
+
+namespace ImportCostAlgeria.Core.Services;
+
+/// <summary>
+/// Configuration d'un champ dynamique affiché selon l'Incoterm sélectionné (Sections 7 & 8).
+/// Ne jamais appliquer automatiquement une règle Incoterm non documentée par la configuration métier.
+/// </summary>
+public sealed record DynamicIncotermFieldSpec(
+    IncotermCode Incoterm,
+    string FeeCategoryCode,
+    string LabelFr,
+    bool IsRequiredForCustomsValuation,
+    CustomsAdjustmentTreatment DefaultCustomsTreatment,
+    bool DefaultIncludeInCustomsValue,
+    bool DefaultIncludeInCostOfGoods,
+    AnomalySeverity SeverityIfMissing,
+    string LegalBasisArticleFr);
+
+/// <summary>
+/// Service de résolution des champs dynamiques selon l'Incoterm (Sections 7 & 8).
+/// V1 : EXW, FOB, CFR. Architecture prête pour FCA, FAS, CIF, CPT, CIP, DAP, DPU, DDP.
+/// </summary>
+public sealed class IncotermDynamicFieldService
+{
+    private static readonly IReadOnlyList<DynamicIncotermFieldSpec> ConfiguredRules = new[]
+    {
+        // EXW : Prix marchandise + Transport intérieur pays exportateur + Frais export + Manutention/chargement + Fret international + Assurance
+        new DynamicIncotermFieldSpec(
+            IncotermCode.EXW, "TRANSPORT_INTERIEUR_EXPORT", "Transport intérieur pays exportateur",
+            true, CustomsAdjustmentTreatment.Addition_Art16Octies, true, true, AnomalySeverity.Erreur,
+            "Art. 16 octies § 1 e) i) du Code des Douanes Algérien"),
+        new DynamicIncotermFieldSpec(
+            IncotermCode.EXW, "FRAIS_EXPORT", "Frais export (dédouanement export)",
+            true, CustomsAdjustmentTreatment.Addition_Art16Octies, true, true, AnomalySeverity.Erreur,
+            "Art. 16 octies § 1 e) ii) du Code des Douanes Algérien"),
+        new DynamicIncotermFieldSpec(
+            IncotermCode.EXW, "MANUTENTION_EXPORT", "Manutention / chargement export",
+            true, CustomsAdjustmentTreatment.Addition_Art16Octies, true, true, AnomalySeverity.Erreur,
+            "Art. 16 octies § 1 e) ii) du Code des Douanes Algérien"),
+        new DynamicIncotermFieldSpec(
+            IncotermCode.EXW, "FRET_INTERNATIONAL", "Fret international",
+            true, CustomsAdjustmentTreatment.Addition_Art16Octies, true, true, AnomalySeverity.Erreur,
+            "Art. 16 octies § 1 e) i) du Code des Douanes Algérien"),
+        new DynamicIncotermFieldSpec(
+            IncotermCode.EXW, "ASSURANCE", "Assurance transport international",
+            true, CustomsAdjustmentTreatment.Addition_Art16Octies, true, true, AnomalySeverity.Avertissement,
+            "Art. 16 octies § 1 e) i) du Code des Douanes Algérien"),
+
+        // FOB : Prix FOB + Fret international + Assurance
+        new DynamicIncotermFieldSpec(
+            IncotermCode.FOB, "FRET_INTERNATIONAL", "Fret international",
+            true, CustomsAdjustmentTreatment.Addition_Art16Octies, true, true, AnomalySeverity.Erreur,
+            "Art. 16 octies § 1 e) i) du Code des Douanes Algérien"),
+        new DynamicIncotermFieldSpec(
+            IncotermCode.FOB, "ASSURANCE", "Assurance transport international",
+            true, CustomsAdjustmentTreatment.Addition_Art16Octies, true, true, AnomalySeverity.Avertissement,
+            "Art. 16 octies § 1 e) i) du Code des Douanes Algérien"),
+
+        // CFR : Prix CFR (fret déjà inclus) + Assurance
+        new DynamicIncotermFieldSpec(
+            IncotermCode.CFR, "ASSURANCE", "Assurance transport international",
+            true, CustomsAdjustmentTreatment.Addition_Art16Octies, true, true, AnomalySeverity.Avertissement,
+            "Art. 16 octies § 1 e) i) du Code des Douanes Algérien")
+    };
+
+    public static bool IsSupportedInV1(IncotermCode code) =>
+        code is IncotermCode.EXW or IncotermCode.FOB or IncotermCode.CFR;
+
+    public IReadOnlyList<DynamicIncotermFieldSpec> GetRequiredDynamicFields(IncotermCode incoterm) =>
+        ConfiguredRules.Where(r => r.Incoterm == incoterm).ToList();
+}
+
+/// <summary>
+/// Catalogue des 18 types de frais d'importation standards + création de frais personnalisés (Section 9).
+/// </summary>
+public sealed record StandardFeeTemplate(
+    string CategoryCode,
+    string DefaultLabelFr,
+    FeeAllocationMethod SuggestedAllocationMethod,
+    bool DefaultIncludeInCustomsValue,
+    CustomsAdjustmentTreatment DefaultCustomsTreatment,
+    bool DefaultIncludeInCostOfGoods);
+
+public static class ImportFeeCatalog
+{
+    public static readonly IReadOnlyList<StandardFeeTemplate> StandardTemplates = new[]
+    {
+        new StandardFeeTemplate("FRET_INTERNATIONAL",         "Fret international",                     FeeAllocationMethod.ByValue,    true,  CustomsAdjustmentTreatment.Addition_Art16Octies,     true),
+        new StandardFeeTemplate("ASSURANCE",                  "Assurance",                              FeeAllocationMethod.ByValue,    true,  CustomsAdjustmentTreatment.Addition_Art16Octies,     true),
+        new StandardFeeTemplate("TRANSPORT_INTERIEUR_EXPORT", "Transport intérieur pays exportateur",   FeeAllocationMethod.ByWeight,   true,  CustomsAdjustmentTreatment.Addition_Art16Octies,     true),
+        new StandardFeeTemplate("FRAIS_EXPORT",               "Frais export",                           FeeAllocationMethod.ByValue,    true,  CustomsAdjustmentTreatment.Addition_Art16Octies,     true),
+        new StandardFeeTemplate("MANUTENTION",                "Manutention",                            FeeAllocationMethod.ByQuantity, false, CustomsAdjustmentTreatment.PostIntroductionExcluded, true),
+        new StandardFeeTemplate("FRAIS_PORTUAIRES",           "Frais portuaires",                       FeeAllocationMethod.ByValue,    false, CustomsAdjustmentTreatment.PostIntroductionExcluded, true),
+        new StandardFeeTemplate("THC",                        "THC (Terminal Handling Charges)",        FeeAllocationMethod.ByQuantity, false, CustomsAdjustmentTreatment.PostIntroductionExcluded, true),
+        new StandardFeeTemplate("MAGASINAGE",                 "Magasinage",                             FeeAllocationMethod.ByValue,    false, CustomsAdjustmentTreatment.PostIntroductionExcluded, true),
+        new StandardFeeTemplate("DEPOTAGE",                   "Dépotage",                               FeeAllocationMethod.ByQuantity, false, CustomsAdjustmentTreatment.PostIntroductionExcluded, true),
+        new StandardFeeTemplate("TRANSIT",                    "Transit",                                FeeAllocationMethod.ByValue,    false, CustomsAdjustmentTreatment.PostIntroductionExcluded, true),
+        new StandardFeeTemplate("COMMISSIONNAIRE_DOUANE",     "Commissionnaire en douane (Honoraires)", FeeAllocationMethod.ByValue,    false, CustomsAdjustmentTreatment.PostIntroductionExcluded, true),
+        new StandardFeeTemplate("TRANSPORT_PORT_ENTREPOT",    "Transport port → entrepôt",              FeeAllocationMethod.ByWeight,   false, CustomsAdjustmentTreatment.PostIntroductionExcluded, true),
+        new StandardFeeTemplate("FRAIS_BANCAIRES",            "Frais bancaires",                        FeeAllocationMethod.ByValue,    false, CustomsAdjustmentTreatment.PostIntroductionExcluded, true),
+        new StandardFeeTemplate("DOMICILIATION",              "Domiciliation bancaire",                 FeeAllocationMethod.ByValue,    false, CustomsAdjustmentTreatment.PostIntroductionExcluded, true),
+        new StandardFeeTemplate("CONTROLE",                   "Contrôle aux frontières",                FeeAllocationMethod.ByValue,    false, CustomsAdjustmentTreatment.PostIntroductionExcluded, true),
+        new StandardFeeTemplate("INSPECTION",                 "Inspection",                             FeeAllocationMethod.ByValue,    false, CustomsAdjustmentTreatment.PostIntroductionExcluded, true),
+        new StandardFeeTemplate("CERTIFICATION",              "Certification / Conformité",             FeeAllocationMethod.ByValue,    false, CustomsAdjustmentTreatment.PostIntroductionExcluded, true),
+        new StandardFeeTemplate("AUTRES_FRAIS",               "Autres frais",                           FeeAllocationMethod.ByValue,    false, CustomsAdjustmentTreatment.PostIntroductionExcluded, true)
+    };
+}
+
+/// <summary>
+/// Proposition issue de la Base Produits réutilisable lors d'une nouvelle importation (Section 31).
+/// Workflow : Référence reconnue -> Produit retrouvé -> Données proposées -> Utilisateur confirme.
+/// Ne réutilise JAMAIS aveuglément un ancien taux douanier ou TVA.
+/// </summary>
+public sealed record ProductCatalogRecognitionProposal(
+    Guid ProductId,
+    string Reference,
+    string ProposedDesignation,
+    string? ProposedHsCode10,
+    string? ProposedOriginCountryIso2,
+    string ProposedMeasurementUnit,
+    decimal? ProposedUnitGrossWeightKg,
+    decimal? HistoricalIndicativeDutyRatePercent,
+    bool RequiresUserConfirmation,
+    string RegulatorySafetyNoticeFr);
+
+public sealed class ProductCatalogService
+{
+    private readonly List<Product> _companyProducts = new();
+
+    public void RegisterOrUpdateProduct(Product product)
+    {
+        _companyProducts.RemoveAll(p =>
+            p.CompanyId == product.CompanyId &&
+            string.Equals(p.Reference, product.Reference, StringComparison.OrdinalIgnoreCase));
+        _companyProducts.Add(product);
+    }
+
+    /// <summary>
+    /// Recherche un produit dans le référentiel de l'entreprise (isolation stricte par CompanyId — Section 32).
+    /// </summary>
+    public ProductCatalogRecognitionProposal? TryRecognizeProductForCompany(Guid companyId, string productReference)
+    {
+        var match = _companyProducts.FirstOrDefault(p =>
+            p.CompanyId == companyId &&
+            string.Equals(p.Reference.Trim(), productReference.Trim(), StringComparison.OrdinalIgnoreCase));
+
+        if (match == null)
+            return null;
+
+        return new ProductCatalogRecognitionProposal(
+            ProductId: match.Id,
+            Reference: match.Reference,
+            ProposedDesignation: match.Designation,
+            ProposedHsCode10: match.ConfirmedHsCode10,
+            ProposedOriginCountryIso2: match.HabitualOriginCountryIso2,
+            ProposedMeasurementUnit: match.MeasurementUnit,
+            ProposedUnitGrossWeightKg: match.UnitGrossWeightKg,
+            HistoricalIndicativeDutyRatePercent: match.HabitualDutyRatePercent,
+            RequiresUserConfirmation: true,
+            RegulatorySafetyNoticeFr: "Produit reconnu dans la base entreprise : le Code SH et l'origine sont proposés pour confirmation. Les taux de droits et taxes seront recalculés selon la réglementation en vigueur à la date de la nouvelle opération.");
+    }
+}
