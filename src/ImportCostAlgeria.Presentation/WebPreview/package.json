@@ -1,0 +1,19 @@
+{
+  "name": "cimp-application",
+  "version": "1.3.0",
+  "description": "CIMP — Application complète de calcul du coût d'importation en Algérie (droits, taxes, coût de revient).",
+  "main": "server.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "start": "node server.js"
+  },
+  "keywords": ["douane", "algerie", "import", "cout-de-revient"],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "express": "^5.2.1",
+    "multer": "^2.4.0",
+    "pdfkit": "^0.20.2",
+    "xlsx": "^0.18.5"
+  }
+}
