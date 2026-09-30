@@ -23,13 +23,94 @@ public sealed record AuditLogEntry(
     string? LegalSourceReference,
     string? RegulatoryVersionCode);
 
-public sealed class AuditTrailService
+/// <summary>
+/// Abstraction de persistance du journal d'audit (Sections 34 & 39).
+/// Implémentée par ImportCostAlgeria.Database.Repositories.EfAuditLogStore pour une persistance réelle
+/// en base (SQLite/SQL Server). Une entrée d'audit n'est JAMAIS modifiable ni supprimable une fois écrite.
+/// </summary>
+public interface IAuditLogStore
+{
+    AuditLogEntry Append(AuditLogEntry entryWithoutSequence);
+    IReadOnlyList<AuditLogEntry> GetForCompany(Guid? companyId);
+    IReadOnlyList<AuditLogEntry> GetAll();
+}
+
+/// <summary>
+/// Implémentation par défaut en mémoire (utilisée par les tests unitaires et comme repli
+/// si aucune base de données n'est injectée).
+/// </summary>
+public sealed class InMemoryAuditLogStore : IAuditLogStore
 {
     private readonly List<AuditLogEntry> _entries = new();
     private long _counter;
 
-    public IReadOnlyList<AuditLogEntry> GetAuditLogsForCompany(Guid companyId) =>
+    public AuditLogEntry Append(AuditLogEntry entryWithoutSequence)
+    {
+        var entry = entryWithoutSequence with { SequenceNumber = ++_counter };
+        _entries.Add(entry);
+        return entry;
+    }
+
+    public IReadOnlyList<AuditLogEntry> GetForCompany(Guid? companyId) =>
         _entries.FindAll(e => e.CompanyId == companyId || e.CompanyId == null);
+
+    public IReadOnlyList<AuditLogEntry> GetAll() => _entries.AsReadOnly();
+}
+
+public sealed class AuditTrailService
+{
+    private readonly IAuditLogStore _store;
+
+    public AuditTrailService() : this(new InMemoryAuditLogStore())
+    {
+    }
+
+    public AuditTrailService(IAuditLogStore store)
+    {
+        _store = store ?? throw new ArgumentNullException(nameof(store));
+    }
+
+    public IReadOnlyList<AuditLogEntry> GetAuditLogsForCompany(Guid companyId) =>
+        _store.GetForCompany(companyId);
+
+    /// <summary>
+    /// Point d'entrée générique d'écriture d'audit (Section 34) : couvre toutes les catégories exigées
+    /// (création/modification/suppression, import, validation de mapping, changement de code SH,
+    /// validation IA, changement de taux, publication de règle, calcul, export, changement de frais...).
+    /// Une entrée d'audit est immuable dès sa création (Section 39).
+    /// </summary>
+    public AuditLogEntry RecordAction(
+        Guid? companyId,
+        Guid userId,
+        string userDisplayName,
+        string actionCategory,
+        string actionName,
+        string? oldValue = null,
+        string? newValue = null,
+        Guid? importOperationId = null,
+        Guid? productId = null,
+        string? regulatoryRuleCode = null,
+        string? legalSourceReference = null,
+        string? regulatoryVersionCode = null)
+    {
+        var entry = new AuditLogEntry(
+            SequenceNumber: 0,
+            TimestampUtc: DateTime.UtcNow,
+            CompanyId: companyId,
+            UserId: userId,
+            UserDisplayName: userDisplayName,
+            ActionCategory: actionCategory,
+            ActionName: actionName,
+            OldValue: oldValue,
+            NewValue: newValue,
+            ImportOperationId: importOperationId,
+            ProductId: productId,
+            RegulatoryRuleCode: regulatoryRuleCode,
+            LegalSourceReference: legalSourceReference,
+            RegulatoryVersionCode: regulatoryVersionCode);
+
+        return _store.Append(entry);
+    }
 
     public AuditLogEntry RecordRegulatoryRateUpdate(
         Guid adminUserId,
@@ -41,7 +122,7 @@ public sealed class AuditTrailService
         string versionCode)
     {
         var entry = new AuditLogEntry(
-            SequenceNumber: ++_counter,
+            SequenceNumber: 0,
             TimestampUtc: DateTime.UtcNow,
             CompanyId: null,
             UserId: adminUserId,
@@ -56,8 +137,7 @@ public sealed class AuditTrailService
             LegalSourceReference: legalSource,
             RegulatoryVersionCode: versionCode);
 
-        _entries.Add(entry);
-        return entry;
+        return _store.Append(entry);
     }
 
     public AuditLogEntry RecordManualExchangeRateOverride(
@@ -70,7 +150,7 @@ public sealed class AuditTrailService
         decimal manualRate)
     {
         var entry = new AuditLogEntry(
-            SequenceNumber: ++_counter,
+            SequenceNumber: 0,
             TimestampUtc: DateTime.UtcNow,
             CompanyId: companyId,
             UserId: userId,
@@ -85,7 +165,6 @@ public sealed class AuditTrailService
             LegalSourceReference: "Portail officiel ALCES / Dérogation manuelle utilisateur",
             RegulatoryVersionCode: null);
 
-        _entries.Add(entry);
-        return entry;
+        return _store.Append(entry);
     }
 }
