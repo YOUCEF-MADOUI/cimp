@@ -1,0 +1,24 @@
+{
+  "name": "cimp",
+  "version": "1.0.0",
+  "description": "Application modulaire **C# / .NET 8 / Entity Framework Core / SQL Server** conçue spécifiquement pour le contexte douanier, fiscal et comptable algérien (**Code des Douanes Algérien — Loi n° 79-07 modifiée et complétée par la Loi n° 98-10 et la Loi n° 17-04**, **Code des Taxes sur le Chiffre d'Affaires — CTCA Art. 19**, **LFC 2018 Art. 2 — DAPS**, **Système Comptable Financier — SCF Art. 121-3**).",
+  "main": "index.js",
+  "directories": {
+    "doc": "docs",
+    "test": "tests"
+  },
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/YOUCEF-MADOUI/cimp.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/YOUCEF-MADOUI/cimp/issues"
+  },
+  "homepage": "https://github.com/YOUCEF-MADOUI/cimp#readme"
+}

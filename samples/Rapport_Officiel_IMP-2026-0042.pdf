@@ -1,0 +1,84 @@
+%PDF-1.4
+%‚„œ”
+1 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>
+endobj
+2 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding >>
+endobj
+3 0 obj
+<< /Type /Pages /Kids [5 0 R] /Count 1 >>
+endobj
+4 0 obj
+<< /Length 5890 >>
+stream
+BT
+1 0 0 1 42 805 Tm /F2 13 Tf (IMPORTCOST ALGERIA - RAPPORT OFFICIEL DE CALCUL DU COUT DE REVIENT) Tj
+1 0 0 1 42 787 Tm /F1 9 Tf (Conforme au Code des Douanes Algerien \(Loi 17-04\), au CTCA \(Art. 19\) et au SCF \(Art. 121-3\)) Tj
+1 0 0 1 42 773 Tm /F1 8 Tf (------------------------------------------------------------------------------------------------------------------------) Tj
+1 0 0 1 42 760 Tm /F2 10 Tf (1. INFORMATIONS IMPORTATION & ENTREPRISE \(Multi-Entreprise\)) Tj
+1 0 0 1 50 745 Tm /F1 9 Tf (Entreprise : SARL EQUIP-INDUS ALGERIE \(NIF : 001816099123456\) | Regime TVA : Non recuperable \(Cout\)) Tj
+1 0 0 1 50 731 Tm /F1 9 Tf (Numero importation : IMP-2026-0042 | Date de reference \(Art. 103 CDA\) : 15/09/2026) Tj
+1 0 0 1 50 717 Tm /F1 9 Tf (Port d arrivee \(Lieu d introduction\) : Port d Alger | Mode de transport : Maritime \(1 Conteneur 20 pieds\)) Tj
+1 0 0 1 42 703 Tm /F2 10 Tf (2. INFORMATIONS FOURNISSEUR, ORIGINE & INCOTERM) Tj
+1 0 0 1 50 688 Tm /F1 9 Tf (Fournisseur : SHANGHAI INDUSTRIAL PARTS CO. | Pays d expedition \(saisi une seule fois\) : CN \(Chine\)) Tj
+1 0 0 1 50 674 Tm /F1 9 Tf (Pays d origine des lignes : CN \(Chine\) | Incoterm V1 : FOB Shanghai \(Art. 16 octies par. 1 e CDA\)) Tj
+1 0 0 1 50 660 Tm /F1 9 Tf (Devise : EUR | Taux de change officiel ALCES au 15/09/2026 : 1 EUR = 146,5000 DZD \(Art. 16 decies CDA\)) Tj
+1 0 0 1 42 646 Tm /F1 8 Tf (------------------------------------------------------------------------------------------------------------------------) Tj
+1 0 0 1 42 633 Tm /F2 10 Tf (3. RESUME FINANCIER : SEPARATION COUT DOUANIER VS COUT DE REVIENT ECONOMIQUE) Tj
+1 0 0 1 50 618 Tm /F2 9 Tf ([RESULTAT 1 - COUT / FISCALITE DOUANIERE \(Section 25\)]) Tj
+1 0 0 1 56 604 Tm /F1 9 Tf (- Valeur en douane totale \(Prix FOB + Fret int. + Assurance\) : 1 662 775,00 DZD) Tj
+1 0 0 1 56 590 Tm /F1 9 Tf (- Droits de douane \(DD\) liquides                             :   168 475,01 DZD) Tj
+1 0 0 1 56 576 Tm /F1 9 Tf (- Taxes et prelevements applicables \(DAPS 30% sur PROD-A\)    :   256 008,75 DZD) Tj
+1 0 0 1 56 562 Tm /F1 9 Tf (- TVA a l importation \(19% sur VD + DD + DAPS - Art. 19 CTCA\):   396 579,16 DZD) Tj
+1 0 0 1 56 548 Tm /F2 9 Tf (= TOTAL DROITS ET TAXES DOUANIERS                            :   821 062,92 DZD) Tj
+1 0 0 1 50 534 Tm /F2 9 Tf ([RESULTAT 2 - COUT DE REVIENT ECONOMIQUE REEL \(Section 26\)]) Tj
+1 0 0 1 56 520 Tm /F1 9 Tf (- Valeur d achat convertie en DZD \(10 000,00 EUR x 146,50\)   : 1 465 000,00 DZD) Tj
+1 0 0 1 56 506 Tm /F1 9 Tf (- Total Frais d approche \(197 775,00 VD + 180 000,00 Locaux\) :   377 775,00 DZD) Tj
+1 0 0 1 56 492 Tm /F1 9 Tf (- Droits de douane \(168 475,01\) + Taxes DAPS \(256 008,75\)    :   424 483,76 DZD) Tj
+1 0 0 1 56 478 Tm /F1 9 Tf (= Cout d acquisition Hors TVA                                : 2 267 258,76 DZD) Tj
+1 0 0 1 56 464 Tm /F1 9 Tf (+ TVA d importation non recuperable \(Section 24\)             :   396 579,16 DZD) Tj
+1 0 0 1 56 450 Tm /F2 9 Tf (= COUT TOTAL DE REVIENT REEL DE L IMPORTATION                : 2 663 837,92 DZD) Tj
+1 0 0 1 42 436 Tm /F1 8 Tf (------------------------------------------------------------------------------------------------------------------------) Tj
+1 0 0 1 42 423 Tm /F2 10 Tf (4. DETAIL PAR ARTICLE, DROITS ET TAXES & COUT UNITAIRE \(Section 27\)) Tj
+1 0 0 1 50 408 Tm /F2 9 Tf (Ligne 1 : PROD-A | Support moteur antivibratoire \(Engine Mounting\) | Qte : 500 U | Poids : 1 000 kg) Tj
+1 0 0 1 56 394 Tm /F1 9 Tf (Code SH : 8708.99.90.00 \(Origine CN\) | Comparaison DD : ALERTE DIFFERENCE \(Excel 10% vs Regl. 15%\)) Tj
+1 0 0 1 56 380 Tm /F1 9 Tf (Achat : 732 500,00 DZD | Valeur Douane : 853 362,50 DZD | DD \(15%\) : 128 004,38 DZD | DAPS \(30%\) : 256 008,75 DZD) Tj
+1 0 0 1 56 366 Tm /F1 9 Tf (TVA \(19%\) : 235 101,37 DZD | Frais repartis : 233 076,79 DZD | COUT REVIENT : 1 584 691,29 DZD -> UNITAIRE : 3 169,38 DZD/U) Tj
+1 0 0 1 50 352 Tm /F2 9 Tf (Ligne 2 : PROD-B | Filtre hydraulique haute pression industriel | Qte : 200 U | Poids : 600 kg) Tj
+1 0 0 1 56 338 Tm /F1 9 Tf (Code SH : 8421.29.90.00 \(Origine CN\) | Comparaison DD : Correspondance \(Excel 5% = Regl. 5%\)) Tj
+1 0 0 1 56 324 Tm /F1 9 Tf (Achat : 732 500,00 DZD | Valeur Douane : 809 412,50 DZD | DD \(5%\) : 40 470,63 DZD | DAPS : 0,00 DZD) Tj
+1 0 0 1 56 310 Tm /F1 9 Tf (TVA \(19%\) : 161 477,79 DZD | Frais repartis : 144 698,21 DZD | COUT REVIENT : 1 079 146,63 DZD -> UNITAIRE : 5 395,73 DZD/U) Tj
+1 0 0 1 42 296 Tm /F1 8 Tf (------------------------------------------------------------------------------------------------------------------------) Tj
+1 0 0 1 42 283 Tm /F2 10 Tf (5. VENTILATION DES FRAIS, ANOMALIES & SOURCES REGLEMENTAIRES \(Sections 9, 11, 28, 36\)) Tj
+1 0 0 1 50 268 Tm /F1 9 Tf (Frais : Fret int. 175 800 DZD \(Poids, VD=OUI\) | Assurance 21 975 DZD \(Valeur, VD=OUI\) | Port/THC 85 000 DZD \(Qte, VD=NON\)) Tj
+1 0 0 1 50 254 Tm /F1 9 Tf (        Transit/HAD 45 000 DZD \(Valeur, VD=NON\) | Transport local 32 000 DZD \(Poids, VD=NON\) | Banque 18 000 DZD \(Valeur, VD=NON\)) Tj
+1 0 0 1 50 240 Tm /F1 9 Tf (Anomalie : [AVERTISSEMENT] Ligne 1 \(PROD-A\) : Droit Excel \(10%\) different du droit reglementaire officiel \(15%\).) Tj
+1 0 0 1 50 226 Tm /F1 9 Tf (Version reglementaire : DZ-REG-2026.01 | Sources : JORA n 11 \(Loi 17-04 CDA\), JORA n 42 \(LFC 2018\), CTCA Art. 19, Portail ALCES.) Tj
+1 0 0 1 42 212 Tm /F1 8 Tf (------------------------------------------------------------------------------------------------------------------------) Tj
+1 0 0 1 42 199 Tm /F2 8 Tf (MENTION LEGALE OBLIGATOIRE \(Section 40\) :) Tj
+1 0 0 1 42 186 Tm /F1 8 Tf (Les resultats sont calcules a partir des donnees saisies, des regles reglementaires enregistrees dans le systeme et des) Tj
+1 0 0 1 42 173 Tm /F1 8 Tf (parametres selectionnes. Ils doivent etre verifies au regard de la declaration et des documents douaniers officiels) Tj
+ET
+endstream
+endobj
+5 0 obj
+<< /Type /Page /Parent 3 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 1 0 R /F2 2 0 R >> >> /Contents 4 0 R >>
+endobj
+6 0 obj
+<< /Type /Catalog /Pages 3 0 R >>
+endobj
+xref
+0 7
+0000000000 65535 f 
+0000000015 00000 n 
+0000000112 00000 n 
+0000000214 00000 n 
+0000000271 00000 n 
+0000006213 00000 n 
+0000006349 00000 n 
+trailer
+<< /Size 7 /Root 6 0 R >>
+startxref
+6398
+%%EOF
