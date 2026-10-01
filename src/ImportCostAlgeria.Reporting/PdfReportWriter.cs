@@ -83,8 +83,14 @@ public static class PdfReportWriter
                     c.Item().Text($"N° d'importation : {m.ImportNumber}");
                     c.Item().Text($"Date de référence : {m.ReferenceDate:dd/MM/yyyy}");
                     c.Item().Text($"Incoterm : {m.IncotermCode}");
-                    c.Item().Text($"Devise / Taux appliqué : {m.CurrencyCode} — {m.AppliedExchangeRateToDzd:F4} DZD");
+                    c.Item().Text($"Devise de la facture : {m.CurrencyCode} — Taux réglementaire appliqué (vers DZD) : {m.AppliedExchangeRateToDzd:F4}");
                     c.Item().Text($"Port / Transport : {m.ArrivalPort} — {m.TransportMode}");
+                    // Section 11 du plan multi-devises : affichage clair devise originale / devise de
+                    // l'autorisation d'importation, strictement séparé de la conversion réglementaire DZD.
+                    if (m.FinancialSummary.DeviseAutorisation != null && m.FinancialSummary.MontantAutorisation.HasValue)
+                    {
+                        c.Item().PaddingTop(3).Text($"Autorisation d'importation : {m.FinancialSummary.MontantAutorisation.Value:N2} {m.FinancialSummary.DeviseAutorisation} (Taux {m.FinancialSummary.DeviseOriginale}/{m.FinancialSummary.DeviseAutorisation} = {m.FinancialSummary.TauxChangeAutorisation:F4}, {m.FinancialSummary.TypeDeTauxAutorisationFr})").Bold();
+                    }
                 });
             });
         });
@@ -97,21 +103,30 @@ public static class PdfReportWriter
             col.Item().Text("ARTICLES — DÉTAIL DU CALCUL").Bold().FontSize(11);
             col.Item().Table(table =>
             {
+                // Section 12 & 15 du plan multi-devises : colonne supplémentaire "Autorisation" affichée
+                // uniquement si au moins une ligne porte une conversion commerciale (sinon colonnes vides,
+                // jamais affichée comme si une conversion inutile avait été faite — Section 15).
+                bool anyAuthorizationConversion = m.ArticleDetails.Any(a => a.DeviseAutorisation != null);
+
                 table.ColumnsDefinition(c =>
                 {
-                    c.RelativeColumn(2.2f); // Référence / désignation
-                    c.RelativeColumn(1f);   // Qté
-                    c.RelativeColumn(1.3f); // Code SH
-                    c.RelativeColumn(1.5f); // Valeur douanière
-                    c.RelativeColumn(1.3f); // Droit douane
-                    c.RelativeColumn(1.3f); // TVA
-                    c.RelativeColumn(1.5f); // Coût revient
-                    c.RelativeColumn(1.5f); // Coût unitaire
+                    c.RelativeColumn(2.0f); // Référence / désignation
+                    c.RelativeColumn(0.8f); // Qté
+                    c.RelativeColumn(1.1f); // Code SH
+                    c.RelativeColumn(1.3f); // Valeur douanière
+                    c.RelativeColumn(1.1f); // Droit douane
+                    c.RelativeColumn(1.1f); // TVA
+                    c.RelativeColumn(1.3f); // Coût revient
+                    c.RelativeColumn(1.3f); // Coût unitaire
+                    if (anyAuthorizationConversion) c.RelativeColumn(1.5f); // Total autorisation (ex: USD)
                 });
 
                 table.Header(header =>
                 {
-                    foreach (var h in new[] { "Référence / Désignation", "Qté", "Code SH", "Val. Douanière (DZD)", "Droit Douane (DZD)", "TVA (DZD)", "Coût Revient (DZD)", "Coût Unit. (DZD)" })
+                    var headerLabels = new System.Collections.Generic.List<string>
+                        { "Référence / Désignation", "Qté", "Code SH", "Val. Douanière (DZD)", "Droit Douane (DZD)", "TVA (DZD)", "Coût Revient (DZD)", "Coût Unit. (DZD)" };
+                    if (anyAuthorizationConversion) headerLabels.Add("Total Autorisation");
+                    foreach (var h in headerLabels)
                     {
                         header.Cell().Background(Colors.Grey.Lighten3).Padding(3).Text(h).Bold().FontSize(7.5f);
                     }
@@ -127,6 +142,13 @@ public static class PdfReportWriter
                     table.Cell().Padding(2).Text(a.TvaDzd.ToString("N2")).FontSize(7.5f);
                     table.Cell().Padding(2).Text(a.CoutTotalRevientDzd.ToString("N2")).FontSize(7.5f);
                     table.Cell().Padding(2).Text(a.CoutUnitaireRevientDzd.ToString("N2")).FontSize(7.5f);
+                    if (anyAuthorizationConversion)
+                    {
+                        string authorizationText = a.DeviseAutorisation != null && a.TotalAutorisation.HasValue
+                            ? $"{a.TotalAutorisation.Value:N2} {a.DeviseAutorisation}"
+                            : "-";
+                        table.Cell().Padding(2).Text(authorizationText).FontSize(7.5f);
+                    }
                 }
             });
         });
@@ -159,6 +181,12 @@ public static class PdfReportWriter
             });
             col.Item().PaddingTop(6).Text($"COÛT TOTAL DE REVIENT : {r.CoutTotalRevientDzd:N2} DZD").Bold().FontSize(12);
             col.Item().Text($"Coût moyen unitaire : {r.CoutMoyenUnitaireDzd:N2} DZD / unité").Bold();
+
+            if (r.DeviseAutorisation != null && r.MontantAutorisation.HasValue)
+            {
+                col.Item().PaddingTop(6).Text("CONVERSION COMMERCIALE (AUTORISATION D'IMPORTATION)").Bold().FontSize(9);
+                col.Item().Text($"Montant facture : {r.MontantOriginal:N2} {r.DeviseOriginale}  →  Montant équivalent : {r.MontantAutorisation.Value:N2} {r.DeviseAutorisation} (taux {r.TauxChangeAutorisation:F4}, {r.TypeDeTauxAutorisationFr})").FontSize(8);
+            }
         });
     }
 

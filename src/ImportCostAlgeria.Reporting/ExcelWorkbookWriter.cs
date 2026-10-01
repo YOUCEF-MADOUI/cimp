@@ -35,7 +35,10 @@ public static class ExcelWorkbookWriter
             "Taux de Change", "Valeur Convertie (DZD)", "Code SH", "Origine", "Incoterm",
             "Part Frais Douane (DZD)", "Valeur Douanière (DZD)", "Droit de Douane (DZD)",
             "Autres Taxes (DZD)", "TVA (DZD)", "Autres Frais Locaux (DZD)", "Total Frais Répartis (DZD)",
-            "Coût Total de Revient (DZD)", "Coût Unitaire de Revient (DZD)"
+            "Coût Total de Revient (DZD)", "Coût Unitaire de Revient (DZD)",
+            // Section 12 & 15 du plan multi-devises : conversion commerciale (jamais réglementaire) vers
+            // la devise de l'autorisation d'importation ; colonnes laissées vides quand non applicable.
+            "Devise Autorisation", "PU Autorisation", "Total Autorisation"
         };
         WriteHeaderRow(ws, headers);
 
@@ -63,6 +66,11 @@ public static class ExcelWorkbookWriter
             ws.Cell(row, c++).Value = r.TotalFraisRepartisDzd;
             ws.Cell(row, c++).Value = r.CoutTotalRevientDzd;
             ws.Cell(row, c++).Value = r.CoutUnitaireRevientDzd;
+            ws.Cell(row, c++).Value = r.DeviseAutorisation ?? string.Empty;
+            if (r.PrixUnitaireAutorisation.HasValue) ws.Cell(row, c).Value = r.PrixUnitaireAutorisation.Value;
+            c++;
+            if (r.TotalAutorisation.HasValue) ws.Cell(row, c).Value = r.TotalAutorisation.Value;
+            c++;
             row++;
         }
 
@@ -106,6 +114,22 @@ public static class ExcelWorkbookWriter
         Line("TVA Non Récupérable", r.IsVatNonRecoverable ? "OUI (incluse au coût de revient)" : "NON (récupérable)");
         Line("Version Réglementaire Appliquée", r.RegulatoryVersionCode);
         row++;
+
+        // Section 6, 11 & 15 du plan multi-devises : bloc "CONVERSION COMMERCIALE" affiché UNIQUEMENT
+        // lorsqu'une conversion est réellement nécessaire (devise facture != devise d'autorisation),
+        // clairement séparé de la conversion réglementaire vers DZD ci-dessus (Section 14 & 22).
+        if (r.DeviseAutorisation != null && r.MontantAutorisation.HasValue)
+        {
+            ws.Cell(row, 1).Value = "CONVERSION COMMERCIALE (AUTORISATION D'IMPORTATION)";
+            ws.Cell(row, 1).Style.Font.Bold = true;
+            row++;
+            Line($"Devise de la facture", r.DeviseOriginale ?? "-");
+            Line($"Montant facture ({r.DeviseOriginale})", r.MontantOriginal ?? 0m);
+            Line($"Taux {r.DeviseOriginale}/{r.DeviseAutorisation}", r.TauxChangeAutorisation ?? 0m);
+            Line($"Type de taux", r.TypeDeTauxAutorisationFr ?? "-");
+            Line($"Montant équivalent ({r.DeviseAutorisation})", r.MontantAutorisation.Value);
+            row++;
+        }
         ws.Cell(row, 1).Value = "MENTION LÉGALE OBLIGATOIRE";
         ws.Cell(row, 1).Style.Font.Bold = true;
         row++;

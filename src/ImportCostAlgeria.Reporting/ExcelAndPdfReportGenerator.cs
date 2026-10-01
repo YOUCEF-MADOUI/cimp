@@ -29,7 +29,13 @@ public sealed record ExcelReportDetailRow(
     decimal AutresFraisLocauxDzd,
     decimal TotalFraisRepartisDzd,
     decimal CoutTotalRevientDzd,
-    decimal CoutUnitaireRevientDzd);
+    decimal CoutUnitaireRevientDzd,
+    // Section 12 & 15 du plan multi-devises : conversion COMMERCIALE (jamais réglementaire) de cette ligne
+    // vers la devise de l'autorisation d'importation. Null lorsque la devise de la ligne est déjà la
+    // devise d'autorisation (Section 15 : "ne pas afficher inutilement une conversion").
+    string? DeviseAutorisation = null,
+    decimal? PrixUnitaireAutorisation = null,
+    decimal? TotalAutorisation = null);
 
 /// <summary>
 /// Feuille 2 : RECAPITULATIF (Sections 22, 23 & 35).
@@ -50,7 +56,16 @@ public sealed record ExcelReportRecapSheet(
     decimal CoutMoyenUnitaireDzd,
     bool IsVatNonRecoverable,
     string RegulatoryVersionCode,
-    string LegalDisclaimerFr);
+    string LegalDisclaimerFr,
+    // Section 6, 11 & 15 du plan multi-devises : conversion COMMERCIALE globale de la facture (ex: EUR ->
+    // USD pour la valeur de l'autorisation d'importation). Null lorsqu'aucune conversion commerciale n'est
+    // nécessaire (devise de la facture déjà égale à la devise de l'autorisation).
+    string? DeviseOriginale = null,
+    decimal? MontantOriginal = null,
+    string? DeviseAutorisation = null,
+    decimal? TauxChangeAutorisation = null,
+    decimal? MontantAutorisation = null,
+    string? TypeDeTauxAutorisationFr = null);
 
 /// <summary>
 /// Feuille 3 : FRAIS — Détail et vérification de la répartition des frais (Sections 15, 16 & 23).
@@ -133,6 +148,20 @@ public sealed record PdfProfessionalReportModel(
 
 public sealed class ReportBuilderService
 {
+    /// <summary>
+    /// Section 17 de l'audit : construit la citation légale affichée dans les rapports à partir de la
+    /// règle réglementaire réellement résolue pour le calcul (jamais une référence générique codée en dur).
+    /// </summary>
+    private static string FormatLegalCitation(string? legalArticleReference, string? joraReference)
+    {
+        if (string.IsNullOrWhiteSpace(legalArticleReference))
+            return "INFORMATION NON DÉTERMINÉE (aucune règle réglementaire officielle associée)";
+
+        return string.IsNullOrWhiteSpace(joraReference)
+            ? legalArticleReference
+            : $"{legalArticleReference} ({joraReference})";
+    }
+
     public ExcelWorkbookReportModel BuildDynamicFiveSheetExcelReport(
         Company company,
         ImportOperation operation,
@@ -168,7 +197,10 @@ public sealed class ReportBuilderService
                 AutresFraisLocauxDzd: lineRes.EconomicOutcome.AllocatedLocalAndPostCustomsFeesDzd,
                 TotalFraisRepartisDzd: lineRes.EconomicOutcome.TotalAllocatedFeesDzd,
                 CoutTotalRevientDzd: lineRes.EconomicOutcome.RealCostOfGoodsTotalDzd,
-                CoutUnitaireRevientDzd: lineRes.EconomicOutcome.UnitCostOfGoodsDzd));
+                CoutUnitaireRevientDzd: lineRes.EconomicOutcome.UnitCostOfGoodsDzd,
+                DeviseAutorisation: lineRes.AuthorizationConversion?.AuthorizationCurrencyCode,
+                PrixUnitaireAutorisation: lineRes.AuthorizationConversion?.AuthorizationUnitPrice,
+                TotalAutorisation: lineRes.AuthorizationConversion?.AuthorizationTotalAmount));
 
             // Droit de douane dans la feuille TAXES
             taxRows.Add(new ExcelReportTaxSheetRow(
@@ -181,8 +213,10 @@ public sealed class ReportBuilderService
                 RatePercent: lineRes.CustomsOutcome.CustomsDutyRatePercent,
                 TaxAmountDzd: lineRes.CustomsOutcome.CustomsDutyAmountDzd,
                 IsNonRecoverable: true,
-                LegalSourceAndArticle: "Code des Douanes Algérien Art. 9, 10 & 103 / Tarif Douanier DGD",
-                RegulatoryVersionCode: regulatoryVersionUsed));
+                // Section 17 de l'audit : citation issue de la règle réglementaire réellement résolue pour
+                // cette ligne, jamais une référence générique codée en dur.
+                LegalSourceAndArticle: FormatLegalCitation(lineRes.CustomsOutcome.CustomsDutyLegalArticleReference, lineRes.CustomsOutcome.CustomsDutyJoraReference),
+                RegulatoryVersionCode: lineRes.CustomsOutcome.CustomsDutyRegulatoryVersionCode ?? regulatoryVersionUsed));
 
             // Autres taxes applicables (DAPS, TIC...) dans la feuille TAXES
             foreach (var addTax in lineRes.CustomsOutcome.AdditionalTaxes)
@@ -212,8 +246,8 @@ public sealed class ReportBuilderService
                 RatePercent: lineRes.CustomsOutcome.VatRatePercent,
                 TaxAmountDzd: lineRes.CustomsOutcome.ImportVatAmountDzd,
                 IsNonRecoverable: company.IsImportVatNonRecoverable,
-                LegalSourceAndArticle: "Code des Taxes sur le Chiffre d'Affaires (CTCA) Art. 19 & 21",
-                RegulatoryVersionCode: regulatoryVersionUsed));
+                LegalSourceAndArticle: FormatLegalCitation(lineRes.CustomsOutcome.VatLegalArticleReference, lineRes.CustomsOutcome.VatJoraReference),
+                RegulatoryVersionCode: lineRes.CustomsOutcome.VatRegulatoryVersionCode ?? regulatoryVersionUsed));
         }
 
         // Feuille FRAIS
@@ -288,7 +322,13 @@ public sealed class ReportBuilderService
             CoutMoyenUnitaireDzd: avgUnitCost,
             IsVatNonRecoverable: company.IsImportVatNonRecoverable,
             RegulatoryVersionCode: regulatoryVersionUsed,
-            LegalDisclaimerFr: calculation.MandatoryLegalDisclaimerFr);
+            LegalDisclaimerFr: calculation.MandatoryLegalDisclaimerFr,
+            DeviseOriginale: calculation.CommercialAuthorizationConversion?.OriginalCurrencyCode,
+            MontantOriginal: calculation.CommercialAuthorizationConversion?.OriginalTotalAmount,
+            DeviseAutorisation: calculation.CommercialAuthorizationConversion?.AuthorizationCurrencyCode,
+            TauxChangeAutorisation: calculation.CommercialAuthorizationConversion?.EffectiveRate,
+            MontantAutorisation: calculation.CommercialAuthorizationConversion?.AuthorizationTotalAmount,
+            TypeDeTauxAutorisationFr: calculation.CommercialAuthorizationConversion?.RateTypeLabelFr);
 
         return new ExcelWorkbookReportModel(
             WorkbookTitle: $"Rapport_Importation_{operation.ImportNumber}",
