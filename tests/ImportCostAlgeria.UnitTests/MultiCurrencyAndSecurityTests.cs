@@ -247,6 +247,29 @@ public sealed class MultiCurrencyAndSecurityTests
     }
 
     [Fact]
+    public void CurrencyConversionService_QuotityUnit100_ShouldNormalizeToPerUnitRate_ForCommercialConversion()
+    {
+        // Exigence explicite de la revue (Section 7) : la normalisation de Quotité (ex: "100 XXX = Y DZD"
+        // -> "1 XXX = Y/100 DZD") doit s'appliquer aussi bien au taux réglementaire qu'au taux COMMERCIAL
+        // (ex: EUR -> USD), via la même logique partagée (ExchangeRateNormalization.ToUnitRate).
+        var rates = new[]
+        {
+            new ExchangeRateRecord
+            {
+                CurrencyCode = "XXX", QuoteCurrencyCode = "USD", RateToDzd = 11700m, QuotityUnit = 100,
+                ValidFrom = new DateOnly(2026, 1, 1), RateType = "COMMERCIAL_AUTORISATION", SourceName = "Test Quotité"
+            }
+        };
+        var service = new CurrencyConversionService(new InMemoryExchangeRateProvider(rates));
+
+        var outcome = service.Convert(1000m, "XXX", "USD", new DateOnly(2026, 1, 15), null);
+
+        // "100 XXX = 11 700 DZD" doit se normaliser en "1 XXX = 117 (unité de cotation)" avant application.
+        Assert.Equal(117m, outcome.EffectiveRate);
+        Assert.Equal(117000m, outcome.ConvertedAmount); // 1000 x 117.
+    }
+
+    [Fact]
     public void CurrencyConversionService_SameCurrency_ShouldReturnIdentityWithoutRequiringAnyRate()
     {
         var service = new CurrencyConversionService(new InMemoryExchangeRateProvider(Array.Empty<ExchangeRateRecord>()));
@@ -525,6 +548,15 @@ public sealed class MultiCurrencyAndSecurityTests
         Assert.True(afterUnitCost > beforeUnitCost, "Une hausse du fret de +20% doit augmenter le coût de revient unitaire.");
         Assert.Contains($"{afterUnitCost:N2} DZD", calcStatement.ContentFr);
 
+        // Audit 2026-10-01 (nouveau round, Section 1) : le message doit respecter EXACTEMENT le gabarit demandé
+        // "Situation actuelle / Après +20 % de fret / Différence / Variation", et les deux valeurs doivent
+        // être explicitement DIFFÉRENTES (jamais simLine utilisé pour les deux côtés de la comparaison).
+        Assert.Contains($"Situation actuelle : {beforeUnitCost:N2} DZD", calcStatement.ContentFr);
+        Assert.Contains($"Après +20 % de fret : {afterUnitCost:N2} DZD", calcStatement.ContentFr);
+        Assert.Contains("Différence :", calcStatement.ContentFr);
+        Assert.Contains("Variation :", calcStatement.ContentFr);
+        Assert.NotEqual(beforeUnitCost, afterUnitCost); // Exigence explicite : les deux valeurs doivent différer.
+
         // L'importation réelle ne doit jamais être modifiée par la simulation (Section 30).
         Assert.Equal(300m, operation.Fees.Single().Amount);
     }
@@ -775,5 +807,243 @@ public sealed class MultiCurrencyAndSecurityTests
         var calc = new CurrencyCalculator(new InMemoryExchangeRateProvider(all));
         var (historicalRate, _, _) = calc.ResolveRate("EUR", new DateOnly(2026, 1, 15), null);
         Assert.Equal(146.50m, historicalRate);
+    }
+
+    // ------------------------------------------------------------------
+    // Audit 2026-10-01 (2e round) — Sections 3, 5, 6, 11, 2 : scénarios chiffrés EXACTS exigés par la revue.
+    // ------------------------------------------------------------------
+
+    [Fact]
+    public void EurToUsd_ExactScenario_10000Eur_At_1_17_ShouldEqual_11700Usd()
+    {
+        // Exigence explicite de la revue : Facture 10 000 EUR, taux EUR/USD officiel 1,17 -> Montant USD = 11 700.
+        var rates = new[]
+        {
+            new ExchangeRateRecord
+            {
+                CurrencyCode = "EUR", QuoteCurrencyCode = "USD", RateToDzd = 1.17m, QuotityUnit = 1,
+                ValidFrom = new DateOnly(2026, 1, 1), RateType = "COMMERCIAL_AUTORISATION", SourceName = "Test USD"
+            }
+        };
+        var service = new CurrencyConversionService(new InMemoryExchangeRateProvider(rates));
+
+        var outcome = service.Convert(10000m, "EUR", "USD", new DateOnly(2026, 1, 15), null);
+
+        Assert.Equal(10000m, outcome.OriginalAmount); // Le montant d'origine (10 000 EUR) reste toujours récupérable.
+        Assert.Equal("EUR", outcome.FromCurrencyCode);
+        Assert.Equal(1.17m, outcome.EffectiveRate);
+        Assert.Equal(11700m, outcome.ConvertedAmount); // 10 000 x 1,17 = 11 700 USD.
+        Assert.False(outcome.IsManualRate);
+    }
+
+    [Fact]
+    public void FullCalculation_ProductLevel_Qty100_PU50Eur_Rate1_17_ShouldProduce_5000Eur_And_5850Usd()
+    {
+        // Exigence explicite de la revue : Qté = 100, PU = 50 EUR, taux = 1,17
+        // -> Total EUR = 5 000, PU USD = 58,50, Total USD = 5 850.
+        var company = BuildCompany();
+        var rates = new[]
+        {
+            new ExchangeRateRecord
+            {
+                CurrencyCode = "EUR", QuoteCurrencyCode = "DZD", RateToDzd = 146.50m, QuotityUnit = 1,
+                ValidFrom = new DateOnly(2026, 1, 1), RateType = "OFFICIEL_DOUANE_ALCES", SourceName = "Test DZD"
+            },
+            new ExchangeRateRecord
+            {
+                CurrencyCode = "EUR", QuoteCurrencyCode = "USD", RateToDzd = 1.17m, QuotityUnit = 1,
+                ValidFrom = new DateOnly(2026, 1, 1), RateType = "COMMERCIAL_AUTORISATION", SourceName = "Test USD"
+            }
+        };
+        var rules = new[]
+        {
+            BuildCustomsDutyRule("8482.10.00.00", 15.0m),
+            BuildVatRule("8482.10.00.00", 19.0m)
+        };
+
+        var operation = new ImportOperation
+        {
+            CompanyId = company.Id,
+            ImportNumber = "IMP-EXACT-01",
+            ReferenceDate = new DateOnly(2026, 1, 15),
+            SupplierName = "Fournisseur Hambourg",
+            ExportShippingCountryIso2 = "DE",
+            DefaultOriginCountryIso2 = "DE",
+            MainCurrencyCode = "EUR",
+            AuthorizationCurrencyCode = "USD",
+            Incoterm = IncotermCode.FOB,
+            ArrivalPortOrBorder = "Port d'Alger",
+            TransportMode = "Maritime",
+            Lines = new List<ImportLine>
+            {
+                new()
+                {
+                    LineNumber = 1,
+                    ProductReference = "ROUL-EXACT",
+                    Designation = "Roulement à billes",
+                    Quantity = 100m,
+                    MeasurementUnit = "PCE",
+                    UnitPurchasePrice = 50m,
+                    CurrencyCode = "EUR",
+                    HsCodeConfirmed10 = "8482.10.00.00",
+                    OriginCountryIso2 = "DE"
+                }
+            },
+            Fees = new List<ImportFee>()
+        };
+
+        var orchestrator = BuildOrchestrator(rates, rules);
+        var summary = orchestrator.ExecuteCalculation(company, operation);
+
+        var line = summary.LineResults.Single();
+        Assert.Equal(5000m, line.EconomicOutcome.PurchaseValueCurrency); // 100 x 50 EUR = 5 000 EUR (jamais remplacé).
+        Assert.NotNull(line.AuthorizationConversion);
+        Assert.Equal(58.50m, line.AuthorizationConversion!.AuthorizationUnitPrice); // 58,50 USD / unité.
+        Assert.Equal(5850m, line.AuthorizationConversion.AuthorizationTotalAmount); // 5 000 x 1,17 = 5 850 USD.
+
+        Assert.NotNull(summary.CommercialAuthorizationConversion);
+        Assert.Equal(5000m, summary.CommercialAuthorizationConversion!.OriginalTotalAmount);
+        Assert.Equal("EUR", summary.CommercialAuthorizationConversion.OriginalCurrencyCode);
+        Assert.Equal(5850m, summary.CommercialAuthorizationConversion.AuthorizationTotalAmount);
+        Assert.Equal("USD", summary.CommercialAuthorizationConversion.AuthorizationCurrencyCode);
+    }
+
+    [Fact]
+    public void ManualAuthorizationRate_10000Eur_OfficialVsManual_ShouldApply1_20_NotOfficial1_17()
+    {
+        // Exigence explicite de la revue : taux officiel 1,17, taux manuel 1,20 saisi par l'utilisateur
+        // -> 10 000 EUR x 1,20 = 12 000 USD (le taux manuel doit être appliqué, jamais ignoré), et le taux
+        // officiel ne doit jamais être silencieusement écrasé dans l'historique (il reste 1,17 à part).
+        var rates = new[]
+        {
+            new ExchangeRateRecord
+            {
+                CurrencyCode = "EUR", QuoteCurrencyCode = "USD", RateToDzd = 1.17m, QuotityUnit = 1,
+                ValidFrom = new DateOnly(2026, 1, 1), RateType = "COMMERCIAL_AUTORISATION", SourceName = "Officiel"
+            }
+        };
+        var service = new CurrencyConversionService(new InMemoryExchangeRateProvider(rates));
+
+        var manualOutcome = service.Convert(10000m, "EUR", "USD", new DateOnly(2026, 1, 15), 1.20m);
+        Assert.True(manualOutcome.IsManualRate);
+        Assert.Contains("TAUX MANUEL", manualOutcome.Anomaly!.MessageFr);
+        Assert.Equal(1.20m, manualOutcome.EffectiveRate);
+        Assert.Equal(12000m, manualOutcome.ConvertedAmount); // 10 000 x 1,20 = 12 000 USD.
+
+        // Le taux officiel (1,17) reste intact et interrogeable séparément : il n'a jamais été remplacé.
+        var officialOutcome = service.Convert(10000m, "EUR", "USD", new DateOnly(2026, 1, 15), null);
+        Assert.False(officialOutcome.IsManualRate);
+        Assert.Equal(1.17m, officialOutcome.EffectiveRate);
+        Assert.Equal(11700m, officialOutcome.ConvertedAmount);
+    }
+
+    [Fact]
+    public void RateHistorization_EurToUsd_ImportDated01Oct_ShouldKeep1_17_EvenAfter1_19PublishedFor15Oct()
+    {
+        // Exigence explicite de la revue : 01/10/2026 -> 1,17 ; 15/10/2026 -> 1,19. Une importation datée du
+        // 01/10/2026 doit continuer à utiliser 1,17 même après publication du taux du 15/10 (1,19) — jamais
+        // de recalcul rétroactif d'une ancienne importation avec un taux nouvellement publié.
+        using var factory = new SingleFileDbContextFactory();
+        using (var ctx = factory.CreateGlobal())
+        {
+            ctx.Database.EnsureCreated();
+        }
+
+        var repository = new ExchangeRateAdminRepository(factory);
+        var adminUserId = Guid.NewGuid();
+
+        repository.PublishNewRate(new ExchangeRateRecord
+        {
+            CurrencyCode = "EUR",
+            QuoteCurrencyCode = "USD",
+            RateToDzd = 1.17m,
+            QuotityUnit = 1,
+            ValidFrom = new DateOnly(2026, 10, 1),
+            RateType = "COMMERCIAL_AUTORISATION",
+            SourceName = "Taux du 01/10"
+        }, adminUserId, UserRole.Administrateur);
+
+        repository.PublishNewRate(new ExchangeRateRecord
+        {
+            CurrencyCode = "EUR",
+            QuoteCurrencyCode = "USD",
+            RateToDzd = 1.19m,
+            QuotityUnit = 1,
+            ValidFrom = new DateOnly(2026, 10, 15),
+            RateType = "COMMERCIAL_AUTORISATION",
+            SourceName = "Taux du 15/10"
+        }, adminUserId, UserRole.Administrateur);
+
+        var all = repository.GetAll().Where(r => r.CurrencyCode == "EUR" && r.QuoteCurrencyCode == "USD").ToList();
+        var oldRate = all.Single(r => r.SourceName == "Taux du 01/10");
+        Assert.Equal(new DateOnly(2026, 10, 14), oldRate.ValidTo); // Clôturé la veille du nouveau taux.
+
+        var conversionService = new CurrencyConversionService(new InMemoryExchangeRateProvider(all));
+
+        // Une importation datée du 01/10/2026 (avant la publication du 15/10) doit toujours résoudre 1,17.
+        var outcomeFor01Oct = conversionService.Convert(10000m, "EUR", "USD", new DateOnly(2026, 10, 1), null);
+        Assert.Equal(1.17m, outcomeFor01Oct.EffectiveRate);
+        Assert.Equal(11700m, outcomeFor01Oct.ConvertedAmount);
+
+        // Une importation datée du 15/10/2026 ou après doit utiliser le nouveau taux 1,19 — sans jamais
+        // modifier rétroactivement le résultat déjà obtenu pour le 01/10.
+        var outcomeFor15Oct = conversionService.Convert(10000m, "EUR", "USD", new DateOnly(2026, 10, 15), null);
+        Assert.Equal(1.19m, outcomeFor15Oct.EffectiveRate);
+        Assert.Equal(11900m, outcomeFor15Oct.ConvertedAmount);
+
+        // Re-vérification explicite de non-régression : le 01/10 reste figé à 1,17 après la publication du 15/10.
+        var outcomeFor01OctAgain = conversionService.Convert(10000m, "EUR", "USD", new DateOnly(2026, 10, 1), null);
+        Assert.Equal(1.17m, outcomeFor01OctAgain.EffectiveRate);
+    }
+
+    [Fact]
+    public void FullCalculation_DirectDzdInvoice_ShouldNotProduceUselessUsdConversion()
+    {
+        // Exigence explicite de la revue (Section 11) : une facture directement en DZD ne doit jamais subir
+        // une conversion USD inutile.
+        var company = BuildCompany();
+        var rules = new[]
+        {
+            BuildCustomsDutyRule("8482.10.00.00", 15.0m),
+            BuildVatRule("8482.10.00.00", 19.0m)
+        };
+
+        var operation = new ImportOperation
+        {
+            CompanyId = company.Id,
+            ImportNumber = "IMP-DZD-01",
+            ReferenceDate = new DateOnly(2026, 1, 15),
+            SupplierName = "Fournisseur local",
+            ExportShippingCountryIso2 = "DZ",
+            DefaultOriginCountryIso2 = "DZ",
+            MainCurrencyCode = "DZD",
+            AuthorizationCurrencyCode = "DZD",
+            Incoterm = IncotermCode.EXW,
+            ArrivalPortOrBorder = "Port d'Alger",
+            TransportMode = "Routier",
+            Lines = new List<ImportLine>
+            {
+                new()
+                {
+                    LineNumber = 1,
+                    ProductReference = "ROUL-DZD",
+                    Designation = "Roulement à billes",
+                    Quantity = 10m,
+                    MeasurementUnit = "PCE",
+                    UnitPurchasePrice = 1000m,
+                    CurrencyCode = "DZD",
+                    HsCodeConfirmed10 = "8482.10.00.00",
+                    OriginCountryIso2 = "DZ"
+                }
+            },
+            Fees = new List<ImportFee>()
+        };
+
+        var orchestrator = BuildOrchestrator(Array.Empty<ExchangeRateRecord>(), rules);
+        var summary = orchestrator.ExecuteCalculation(company, operation);
+
+        Assert.Null(summary.CommercialAuthorizationConversion);
+        Assert.Null(summary.LineResults.Single().AuthorizationConversion);
+        Assert.Equal(10000m, summary.TotalPurchaseValueDzd); // 10 x 1 000 DZD, sans aucun détour par l'EUR ou l'USD.
     }
 }

@@ -263,6 +263,42 @@ public static class ExchangeRateNormalization
 }
 
 /// <summary>
+/// Arrondi monétaire générique PAR DEVISE (correction du 2026-10-01, point 2 de l'audit) : distinct de
+/// <see cref="CurrencyCalculator.RoundDzd"/>, qui reste nommément et sémantiquement réservé aux montants
+/// RÉELLEMENT EXPRIMÉS EN DZD (calcul réglementaire/douanier). Un montant EUR ou USD (conversion
+/// commerciale, montant original de facture, valeur de l'autorisation d'importation) ne doit jamais être
+/// arrondi par une fonction dont le nom indique explicitement du DZD — même si, pour les devises
+/// actuellement gérées (EUR/USD/DZD), le nombre de décimales appliqué est identique aujourd'hui, les deux
+/// usages doivent rester conceptuellement et nommément séparés pour ne jamais être confondus, et pour que
+/// l'ajout futur d'une devise à nombre de décimales différent (ex: une devise sans sous-unité) n'oblige
+/// pas à toucher au calcul réglementaire. Centralisé ICI (moteur de calcul) : ne jamais dupliquer une
+/// règle d'arrondi dans un ViewModel ou un générateur de rapport.
+/// </summary>
+public static class CurrencyRounding
+{
+    // Nombre de décimales standard par devise (convention ISO 4217). Par défaut 2 décimales, qui couvre
+    // toutes les devises actuellement gérées par l'application (EUR, USD, DZD). Reste extensible à une
+    // devise future sans sous-unité (ex: 0 décimale) sans impacter les autres devises.
+    private static readonly IReadOnlyDictionary<string, int> DecimalPlacesByCurrency =
+        new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["DZD"] = 2,
+            ["EUR"] = 2,
+            ["USD"] = 2
+        };
+
+    /// <summary>Arrondit <paramref name="amount"/> selon le nombre de décimales standard de <paramref name="currencyCode"/>.</summary>
+    public static decimal Round(decimal amount, string? currencyCode)
+    {
+        int decimals = !string.IsNullOrWhiteSpace(currencyCode) && DecimalPlacesByCurrency.TryGetValue(currencyCode, out int configuredDecimals)
+            ? configuredDecimals
+            : 2; // Valeur par défaut prudente pour toute devise non encore répertoriée explicitement.
+
+        return Math.Round(amount, decimals, MidpointRounding.AwayFromZero);
+    }
+}
+
+/// <summary>
 /// Convertisseur de devises versionné avec contrôle ALCES et alerte Taux Manuel (Sections 13 & 14).
 /// Base juridique : Art. 16 decies du Code des Douanes (Loi n° 17-04 du 16 février 2017, JORA n° 11).
 /// Usage EXCLUSIF : conversion réglementaire/douanière d'une devise vers DZD (alimente la valeur en
@@ -302,8 +338,12 @@ public sealed class CurrencyCalculator
             manualDiffAnomalyCode: "MANUAL_EXCHANGE_RATE_DIFF");
     }
 
-    public static decimal RoundDzd(decimal amount) =>
-        Math.Round(amount, 2, MidpointRounding.AwayFromZero);
+    /// <summary>
+    /// Arrondi RÉSERVÉ aux montants réellement exprimés en DZD (valeur en douane, droits, taxes, coût de
+    /// revient réel...). Pour un montant dans une autre devise (EUR, USD...), utiliser
+    /// <see cref="CurrencyRounding.Round"/> à la place (point 2 de l'audit du 2026-10-01).
+    /// </summary>
+    public static decimal RoundDzd(decimal amount) => CurrencyRounding.Round(amount, "DZD");
 }
 
 /// <summary>
@@ -362,7 +402,9 @@ public sealed class CurrencyConversionService
         decimal? manualOverrideRate)
     {
         var (rate, official, anomaly) = ResolveCrossRate(fromCurrencyCode, toCurrencyCode, referenceDate, manualOverrideRate);
-        decimal convertedAmount = CurrencyCalculator.RoundDzd(amount * rate);
+        // Correction (point 2 de l'audit) : le montant converti est exprimé en toCurrencyCode (ex: USD),
+        // jamais en DZD — il doit donc être arrondi selon la devise CIBLE, pas via RoundDzd.
+        decimal convertedAmount = CurrencyRounding.Round(amount * rate, toCurrencyCode);
 
         return new CurrencyConversionOutcome(
             OriginalAmount: amount,
@@ -696,7 +738,10 @@ public sealed class ImportCalculationOrchestrator
             if (lineRateAnomaly != null)
                 anomalies.Add(lineRateAnomaly with { LineNumber = line.LineNumber });
 
-            decimal purchaseCurrency = CurrencyCalculator.RoundDzd(line.Quantity * line.UnitPurchasePrice);
+            // Correction (point 2 de l'audit) : purchaseCurrency est exprimé dans la devise D'ORIGINE de la
+            // ligne (line.CurrencyCode, ex: EUR/USD), jamais en DZD à ce stade — seul purchaseDzd (après
+            // application du taux réglementaire) est réellement un montant DZD.
+            decimal purchaseCurrency = CurrencyRounding.Round(line.Quantity * line.UnitPurchasePrice, line.CurrencyCode);
             decimal purchaseDzd = CurrencyCalculator.RoundDzd(purchaseCurrency * lineRate);
             linesWithPurchaseDzd.Add((line, purchaseCurrency, purchaseDzd, lineRate));
         }
@@ -907,7 +952,9 @@ public sealed class ImportCalculationOrchestrator
                         anomalies.Add((lineAuthAnomaly with { Severity = AnomalySeverity.Avertissement, LineNumber = line.LineNumber }));
                 }
 
-                decimal lineAuthorizationTotal = CurrencyCalculator.RoundDzd(purchaseCurrency * effectiveLineAuthorizationRate);
+                // Correction (point 2 de l'audit) : le montant d'autorisation est exprimé dans
+                // operation.AuthorizationCurrencyCode (ex: USD), jamais en DZD — arrondi selon cette devise.
+                decimal lineAuthorizationTotal = CurrencyRounding.Round(purchaseCurrency * effectiveLineAuthorizationRate, operation.AuthorizationCurrencyCode);
                 decimal lineAuthorizationUnit = line.Quantity == 0m
                     ? 0m
                     : Math.Round(lineAuthorizationTotal / line.Quantity, 4, MidpointRounding.AwayFromZero);
@@ -942,7 +989,9 @@ public sealed class ImportCalculationOrchestrator
                 .Where(l => string.Equals(l.CurrencyCode, operation.MainCurrencyCode, StringComparison.OrdinalIgnoreCase))
                 .Sum(l => l.EconomicOutcome.PurchaseValueCurrency);
 
-            decimal totalAuthorizationAmount = CurrencyCalculator.RoundDzd(totalMainCurrencyAmount * authorizationRate);
+            // Correction (point 2 de l'audit) : montant agrégé exprimé en operation.AuthorizationCurrencyCode
+            // (ex: USD), jamais en DZD.
+            decimal totalAuthorizationAmount = CurrencyRounding.Round(totalMainCurrencyAmount * authorizationRate, operation.AuthorizationCurrencyCode);
 
             commercialAuthorizationConversion = new CommercialAuthorizationConversion(
                 OriginalCurrencyCode: operation.MainCurrencyCode,

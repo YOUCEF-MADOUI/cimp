@@ -263,7 +263,9 @@ public sealed class ReportBuilderService
             if (string.Equals(fee.CurrencyCode, "DZD", StringComparison.OrdinalIgnoreCase))
                 rateUsed = 1m;
 
-            decimal convertedDzd = Math.Round(fee.Amount * rateUsed, 2, MidpointRounding.AwayFromZero);
+            // Correction (point 2 de l'audit du 2026-10-01) : le moteur de calcul reste seul responsable de
+            // la règle d'arrondi DZD — pas de copie locale de "Math.Round(x, 2, ...)" dans le générateur de rapport.
+            decimal convertedDzd = CurrencyCalculator.RoundDzd(fee.Amount * rateUsed);
 
             feeRows.Add(new ExcelReportFeeSheetRow(
                 FeeName: fee.FeeName,
@@ -291,8 +293,9 @@ public sealed class ReportBuilderService
             .ToList();
 
         decimal totalQty = calculation.LineResults.Sum(x => x.Quantity);
+        // Correction (point 2 de l'audit) : même règle d'arrondi DZD centralisée que le moteur de calcul.
         decimal avgUnitCost = totalQty > 0m
-            ? Math.Round(calculation.TotalRealCostOfGoodsDzd / totalQty, 2, MidpointRounding.AwayFromZero)
+            ? CurrencyCalculator.RoundDzd(calculation.TotalRealCostOfGoodsDzd / totalQty)
             : 0m;
 
         decimal transportDzd = feeRows

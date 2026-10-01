@@ -221,11 +221,27 @@ public sealed class RegulatoryAssistantEngine
                 "Hypothèse de simulation demandée : hausse de +20 % du fret international."));
             foreach (var simLine in sim.SimulatedCalculation.LineResults)
             {
+                // IMPORTANT (correction définitive demandée) : la valeur "AVANT" provient TOUJOURS de
+                // baseLine (currentCalculation, calcul réel non modifié) et la valeur "APRÈS" provient
+                // TOUJOURS de simLine (sim.SimulatedCalculation, clone simulé) — jamais simLine utilisé
+                // pour les deux valeurs.
                 var baseLine = currentCalculation.LineResults.First(x => x.LineNumber == simLine.LineNumber);
+
+                decimal situationActuelleDzd = baseLine.EconomicOutcome.UnitCostOfGoodsDzd;
+                decimal apresFretDzd = simLine.EconomicOutcome.UnitCostOfGoodsDzd;
+                decimal differenceDzd = CurrencyCalculator.RoundDzd(apresFretDzd - situationActuelleDzd);
+                decimal variationPercent = situationActuelleDzd == 0m
+                    ? 0m
+                    : Math.Round((differenceDzd / situationActuelleDzd) * 100m, 2, MidpointRounding.AwayFromZero);
+
                 statements.Add(new AssistantTaggedStatement(
                     DataOriginTag.CalculDuLogiciel,
                     "CALCUL DU LOGICIEL",
-                    $"Article {simLine.ProductReference} : Le coût de revient unitaire passerait de {baseLine.EconomicOutcome.UnitCostOfGoodsDzd:N2} DZD à {simLine.EconomicOutcome.UnitCostOfGoodsDzd:N2} DZD / unité."));
+                    $"Article {simLine.ProductReference} (coût de revient unitaire) :{Environment.NewLine}" +
+                    $"Situation actuelle : {situationActuelleDzd:N2} DZD{Environment.NewLine}" +
+                    $"Après +20 % de fret : {apresFretDzd:N2} DZD{Environment.NewLine}" +
+                    $"Différence : {differenceDzd:N2} DZD{Environment.NewLine}" +
+                    $"Variation : {variationPercent:N2} %"));
             }
             return new RegulatoryAssistantResponse(questionFr, statements);
         }
