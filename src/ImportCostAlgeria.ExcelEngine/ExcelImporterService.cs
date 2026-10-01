@@ -54,6 +54,30 @@ public sealed class InMemoryMappingTemplateStore : IMappingTemplateStore
 /// </summary>
 public sealed class ExcelImporterService
 {
+    /// <summary>
+    /// Revue du 2026-10-01 (correction urgente — validation du mapping Excel) : liste EXHAUSTIVE et
+    /// EXPLICITE des champs réellement indispensables à la création fiable d'une <see cref="ImportLine"/>.
+    /// Toute colonne fournisseur qui ne correspond à AUCUN de ces champs (ex. "TOTAL", une colonne de
+    /// remarque, une colonne totalement étrangère au modèle CIMP) peut légitimement rester
+    /// <see cref="CanonicalExcelField.Unmapped"/> SANS bloquer l'import — ce n'est plus "toutes les
+    /// colonnes doivent être mappées" mais "ces champs précis doivent être couverts par au moins une
+    /// colonne, peu importe le nombre de colonnes restées Unmapped par ailleurs".
+    ///
+    /// <see cref="CanonicalExcelField.ProductReference"/> n'est volontairement PAS dans cette liste :
+    /// une référence est générée automatiquement (ART-001, ART-002, ...) si aucune colonne n'y est
+    /// mappée (voir plus bas, FindValue + génération de repli). De même,
+    /// <see cref="CanonicalExcelField.Currency"/> et <see cref="CanonicalExcelField.OriginCountry"/> ne
+    /// sont pas obligatoires : la devise/l'origine PAR DÉFAUT de l'opération est utilisée si la colonne
+    /// correspondante n'est pas mappée. HsCode, ExcelDutyRate, GrossWeightKg, VolumeM3, Incoterm, Freight,
+    /// Insurance restent, comme avant, purement facultatifs.
+    /// </summary>
+    private static readonly (CanonicalExcelField Field, string LabelFr)[] RequiredFields =
+    {
+        (CanonicalExcelField.Designation, "Désignation"),
+        (CanonicalExcelField.Quantity, "Quantité"),
+        (CanonicalExcelField.UnitPurchasePrice, "Prix d'achat unitaire")
+    };
+
     private readonly ExcelColumnDetectorAndMapper _detector;
     private readonly ProductCatalogService _productCatalog;
     private readonly IMappingTemplateStore _templateStore;
@@ -121,17 +145,25 @@ public sealed class ExcelImporterService
             }
         }
 
-        bool stillUnrecognized = analysis.UnrecognizedColumnsRequiringUserMapping
-            .Any(u => !effectiveMap.ContainsKey(u.ColumnLetter) || effectiveMap[u.ColumnLetter] == CanonicalExcelField.Unmapped);
+        // Revue du 2026-10-01 (correction urgente — validation du mapping Excel) : on n'exige PLUS que
+        // TOUTES les colonnes du fichier soient mappées à un champ CIMP. Une colonne fournisseur qui ne
+        // correspond à aucun besoin de CIMP (ex. "TOTAL", une colonne de remarque, une colonne inconnue)
+        // peut légitimement rester CanonicalExcelField.Unmapped SANS bloquer l'import. Seuls les CHAMPS
+        // OBLIGATOIRES (RequiredFields) doivent être couverts par AU MOINS une colonne du fichier.
+        var mappedFields = new HashSet<CanonicalExcelField>(effectiveMap.Values);
+        var missingRequiredFields = RequiredFields
+            .Where(rf => !mappedFields.Contains(rf.Field))
+            .ToList();
 
-        if (stillUnrecognized)
+        if (missingRequiredFields.Count > 0)
         {
+            string details = string.Join("\n", missingRequiredFields.Select(f => $"{f.LabelFr} est obligatoire."));
             return new ExcelImportConversionResult(
                 RequiresInteractiveUserMapping: true,
                 HeaderAnalysis: analysis,
                 ConvertedLines: Array.Empty<ImportLine>(),
                 CatalogProposals: Array.Empty<ProductCatalogRecognitionProposal>(),
-                ValidationMessages: new[] { "Mapping interactif requis pour une ou plusieurs colonnes non reconnues." });
+                ValidationMessages: new[] { $"Mapping incomplet :\n{details}" });
         }
 
         var lines = new List<ImportLine>();

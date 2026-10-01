@@ -130,9 +130,13 @@ public sealed class ExcelImportWizardViewModel : ObservableObject
         }
 
         int unrecognized = MappingRows.Count(r => r.MatchedField == CanonicalExcelField.Unmapped);
+
+        // Revue du 2026-10-01 (correction urgente — validation du mapping Excel) : message reformulé
+        // pour ne plus laisser croire que TOUTES les colonnes doivent être mappées. Les colonnes réellement
+        // inutiles à CIMP (ex. une colonne "TOTAL" fournisseur) peuvent rester "Non mappée".
         StatusMessage = unrecognized == 0
             ? "Toutes les colonnes ont été reconnues automatiquement. Vérifiez puis confirmez l'import."
-            : $"{unrecognized} colonne(s) non reconnue(s) automatiquement : veuillez préciser leur correspondance ci-dessous avant de confirmer.";
+            : "Vérifiez les correspondances. Les champs obligatoires doivent être mappés. Les colonnes inutiles peuvent rester « Non mappée ».";
     }
 
     private void ConfirmImport()
@@ -149,7 +153,14 @@ public sealed class ExcelImportWizardViewModel : ObservableObject
 
         if (result.RequiresInteractiveUserMapping)
         {
-            StatusMessage = "Veuillez attribuer une correspondance à toutes les colonnes (aucune ne doit rester \"Non mappée\").";
+            // Revue du 2026-10-01 (correction urgente — validation du mapping Excel) : on n'exige plus
+            // que TOUTES les colonnes soient mappées (une colonne fournisseur inutile à CIMP, ex.
+            // "TOTAL", peut rester "Non mappée" sans bloquer l'import). Seuls les champs réellement
+            // obligatoires (Désignation, Quantité, Prix d'achat) doivent être couverts par une colonne :
+            // le message précis "Mapping incomplet : ... est obligatoire." est fourni par
+            // ExcelImporterService.ProcessExcelSheet lorsque c'est le cas.
+            StatusMessage = result.ValidationMessages.FirstOrDefault()
+                ?? "Vérifiez les correspondances. Les champs obligatoires doivent être mappés. Les colonnes inutiles peuvent rester « Non mappée ».";
             ReadyToImport = false;
             return;
         }
