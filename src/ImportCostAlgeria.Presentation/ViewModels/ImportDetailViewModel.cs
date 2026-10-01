@@ -327,25 +327,38 @@ public sealed class ImportDetailViewModel : ObservableObject
         _session.RequireNotConsultation("confirmer un code SH proposé par l'IA");
 
         var classifier = _engineFactory.CreateHsClassifier();
-        var proposal = classifier.ProposeHsCode(new HsClassificationInput(
-            row.ProductReference, row.Designation, null, row.OriginCountryIso2, null));
+        var baseInput = new HsClassificationInput(
+            row.ProductReference, row.Designation, null, row.OriginCountryIso2, null);
 
-        row.Line.AiProposedHsCode10 = proposal.ProposedHsCode10;
+        // Revue du 2026-10-01 (point 4) : jusqu'à 3 candidats sont désormais proposés (au lieu d'un seul),
+        // chacun avec justification, niveau de confiance, codes alternatifs et informations manquantes.
+        var initialCandidates = classifier.ClassifyCandidates(baseInput);
+
+        row.Line.AiProposedHsCode10 = initialCandidates.FirstOrDefault()?.HsCode10;
         row.Line.AiHsDecision = AiProposalDecision.PendingUserValidation;
 
-        var dialogVm = new HsConfirmDialogViewModel(proposal);
+        var dialogVm = new HsConfirmDialogViewModel(
+            classifier, baseInput, initialCandidates, row.ProductReference, row.Designation, row.OriginCountryIso2);
         var window = new HsConfirmDialog { DataContext = dialogVm, Owner = Application.Current.MainWindow };
 
         if (window.ShowDialog() == true)
         {
+            var proposal = dialogVm.BuildProposalForSelectedCandidate();
             classifier.ApplyUserDecisionOnImportLine(row.Line, proposal, dialogVm.Decision, dialogVm.ModifiedHsCode);
             OnPropertyChanged(nameof(Lines));
             row.OnHsChanged();
 
+            // Trace complète de la validation (point 4 de la revue) : proposition IA + justification,
+            // date (TimestampUtc, automatique), source/version du service, utilisateur ayant validé
+            // (UserId/UserDisplayName), et code finalement retenu (NewValue).
             _audit.RecordAction(_company.Id, _session.CurrentUser?.Id ?? Guid.Empty, _session.CurrentUser?.DisplayName ?? "Inconnu",
                 "HS_CLASSIFICATION", $"AI_HS_{dialogVm.Decision}".ToUpperInvariant(),
-                oldValue: proposal.ProposedHsCode10, newValue: row.Line.HsCodeConfirmed10,
-                importOperationId: _operation.Id, regulatoryRuleCode: proposal.ProposedHsCode10);
+                oldValue: $"Proposé par IA : {proposal.ProposedHsCode10} (confiance {proposal.ConfidencePercent:F0} %) — Justification : {proposal.JustificationFr}",
+                newValue: row.Line.HsCodeConfirmed10,
+                importOperationId: _operation.Id,
+                regulatoryRuleCode: proposal.ProposedHsCode10,
+                legalSourceReference: classifier.ServiceNameAndVersion,
+                regulatoryVersionCode: classifier.ServiceNameAndVersion);
         }
     }
 

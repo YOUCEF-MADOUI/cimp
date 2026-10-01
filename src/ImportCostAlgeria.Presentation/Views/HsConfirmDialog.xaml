@@ -1,40 +1,119 @@
 <Window x:Class="ImportCostAlgeria.Presentation.Views.HsConfirmDialog"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="Proposition IA — Classification du code SH" Height="420" Width="560"
+        Title="Proposition IA — Classification du code SH" Height="760" Width="820"
         WindowStartupLocation="CenterOwner">
-    <StackPanel Margin="20">
-        <TextBlock Text="⚠️ Proposition de l'Intelligence Artificielle — à valider obligatoirement par un humain"
-                   FontWeight="Bold" Foreground="DarkOrange" TextWrapping="Wrap" Margin="0,0,0,12" />
+    <!--
+        Revue du 2026-10-01 (point 4 — Classification IA du code SH) : affiche jusqu'à 3 candidats de
+        classification SH, chacun avec code, désignation, justification, informations ayant conduit au
+        classement, niveau de confiance, codes alternatifs et informations manquantes. L'IA NE VALIDE
+        JAMAIS le code définitivement : l'utilisateur SÉLECTIONNE un candidat dans la liste (ou saisit son
+        propre code) puis doit explicitement CONFIRMER, MODIFIER ou REFUSER.
+    -->
+    <ScrollViewer VerticalScrollBarVisibility="Auto">
+        <StackPanel Margin="20">
+            <TextBlock Text="⚠️ Proposition de l'Intelligence Artificielle — à valider obligatoirement par un humain"
+                       FontWeight="Bold" Foreground="DarkOrange" TextWrapping="Wrap" Margin="0,0,0,12" />
 
-        <TextBlock Text="Article :" FontWeight="Bold" />
-        <TextBlock Text="{Binding Proposal.ProductDesignation}" Margin="0,0,0,8" TextWrapping="Wrap" />
+            <TextBlock Text="Article :" FontWeight="Bold" />
+            <TextBlock Text="{Binding ProductDesignation}" Margin="0,0,0,8" TextWrapping="Wrap" />
 
-        <TextBlock Text="Code SH (10 chiffres) proposé :" FontWeight="Bold" />
-        <TextBlock Text="{Binding Proposal.ProposedHsCode10}" FontSize="18" Margin="0,0,0,8" />
+            <TextBlock Margin="0,0,0,12">
+                <Run Text="Source de classification : " FontWeight="Bold" />
+                <Run Text="{Binding ServiceNameAndVersion, Mode=OneWay}" />
+            </TextBlock>
 
-        <TextBlock Text="Désignation tarifaire :" FontWeight="Bold" />
-        <TextBlock Text="{Binding Proposal.ProposedTariffDescriptionFr}" TextWrapping="Wrap" Margin="0,0,0,8" />
+            <Expander Header="Préciser les caractéristiques du produit (recommandé avant de valider)" IsExpanded="True" Margin="0,0,0,12">
+                <StackPanel Margin="4,8,4,4">
+                    <Label Content="Description complémentaire" />
+                    <TextBox Text="{Binding AdditionalDescription, UpdateSourceTrigger=PropertyChanged}" TextWrapping="Wrap" AcceptsReturn="True" Height="50" />
 
-        <TextBlock Text="Règle générale interprétative (RGI) utilisée :" FontWeight="Bold" />
-        <TextBlock Text="{Binding Proposal.GeneralInterpretiveRuleUsed}" TextWrapping="Wrap" Margin="0,0,0,8" />
+                    <Label Content="Matière" />
+                    <TextBox Text="{Binding Material, UpdateSourceTrigger=PropertyChanged}" />
 
-        <TextBlock Text="Justification :" FontWeight="Bold" />
-        <TextBlock Text="{Binding Proposal.JustificationFr}" TextWrapping="Wrap" Margin="0,0,0,8" />
+                    <Label Content="Fonction (à quoi sert la pièce, sur quel ensemble elle se monte)" />
+                    <TextBox Text="{Binding Function, UpdateSourceTrigger=PropertyChanged}" />
 
-        <TextBlock Margin="0,0,0,8">
-            <Run Text="Confiance IA : " FontWeight="Bold" />
-            <Run Text="{Binding Proposal.ConfidencePercent, Mode=OneWay, StringFormat={}{0:N1} %}" />
-        </TextBlock>
+                    <CheckBox Content="Une fiche technique ou une photo est disponible pour ce produit" IsChecked="{Binding HasTechnicalDocument}" Margin="4,8,4,4" />
 
-        <Label Content="Code SH modifié (uniquement si vous choisissez [MODIFIER])" />
-        <TextBox Text="{Binding ModifiedHsCode, UpdateSourceTrigger=PropertyChanged}" />
+                    <Button Content="🔄 Relancer la classification IA" Command="{Binding RefreshCommand}" HorizontalAlignment="Left" Margin="4,8,4,4" />
+                </StackPanel>
+            </Expander>
 
-        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,20,0,0">
-            <Button Content="✓ CONFIRMER" Click="OnConfirmerClick" />
-            <Button Content="✎ MODIFIER" Click="OnModifierClick" />
-            <Button Content="✗ REFUSER" Click="OnRefuserClick" />
-            <Button Content="Annuler" Click="OnAnnulerClick" />
+            <TextBlock Text="Candidats proposés par l'IA (sélectionnez-en un ci-dessous) :" FontWeight="Bold" FontSize="14" Margin="0,4,0,8" />
+
+            <ListBox ItemsSource="{Binding Candidates}" SelectedItem="{Binding SelectedCandidate}" BorderThickness="0">
+                <ListBox.ItemContainerStyle>
+                    <Style TargetType="ListBoxItem">
+                        <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+                        <Setter Property="Margin" Value="0,0,0,10" />
+                    </Style>
+                </ListBox.ItemContainerStyle>
+                <ListBox.ItemTemplate>
+                    <DataTemplate>
+                        <Border BorderBrush="#BBB" BorderThickness="1" CornerRadius="4" Padding="10">
+                            <StackPanel>
+                                <TextBlock FontSize="16" FontWeight="Bold">
+                                    <Run Text="{Binding HsCode10, Mode=OneWay}" />
+                                    <Run Text=" — " />
+                                    <Run Text="{Binding ConfidencePercent, Mode=OneWay, StringFormat={}{0:N0} % de confiance}" />
+                                </TextBlock>
+                                <TextBlock Text="{Binding TariffDescriptionFr}" TextWrapping="Wrap" FontStyle="Italic" Margin="0,2,0,6" />
+
+                                <TextBlock Margin="0,2,0,2"><Run Text="Règle générale interprétative (RGI) : " FontWeight="Bold" /><Run Text="{Binding GeneralInterpretiveRuleUsed, Mode=OneWay}" /></TextBlock>
+                                <TextBlock Margin="0,2,0,2" TextWrapping="Wrap"><Run Text="Justification : " FontWeight="Bold" /><Run Text="{Binding JustificationFr, Mode=OneWay}" /></TextBlock>
+
+                                <TextBlock Margin="0,6,0,2" Text="Informations ayant conduit à ce classement :" FontWeight="Bold" />
+                                <ItemsControl Margin="10,0,0,2" ItemsSource="{Binding SupportingInformationFr}">
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate>
+                                            <TextBlock Text="{Binding}" TextWrapping="Wrap" />
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+
+                                <TextBlock Margin="0,6,0,2" Text="Codes alternatifs possibles :"
+                                           FontWeight="Bold"
+                                           Visibility="{Binding AlternativeCandidates.Count, Converter={StaticResource CountToVisibilityConverter}}" />
+                                <ItemsControl Margin="10,0,0,2" ItemsSource="{Binding AlternativeCandidates}">
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate>
+                                            <TextBlock TextWrapping="Wrap">
+                                                <Run Text="{Binding HsCode10, Mode=OneWay}" FontWeight="Bold" />
+                                                <Run Text=" — " />
+                                                <Run Text="{Binding TariffDescriptionFr, Mode=OneWay}" />
+                                                <LineBreak />
+                                                <Run Text="{Binding JustificationFr, Mode=OneWay}" FontStyle="Italic" />
+                                            </TextBlock>
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+
+                                <TextBlock Margin="0,6,0,2" Text="Informations manquantes pour trancher avec certitude :"
+                                           FontWeight="Bold" Foreground="DarkOrange"
+                                           Visibility="{Binding MissingInformationFr.Count, Converter={StaticResource CountToVisibilityConverter}}" />
+                                <ItemsControl Margin="10,0,0,2" ItemsSource="{Binding MissingInformationFr}">
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate>
+                                            <TextBlock Text="{Binding}" TextWrapping="Wrap" Foreground="DarkOrange" />
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                            </StackPanel>
+                        </Border>
+                    </DataTemplate>
+                </ListBox.ItemTemplate>
+            </ListBox>
+
+            <Label Content="Code SH retenu (modifiable librement — obligatoire pour [MODIFIER])" Margin="0,12,0,0" />
+            <TextBox Text="{Binding ModifiedHsCode, UpdateSourceTrigger=PropertyChanged}" FontSize="16" />
+
+            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,20,0,0">
+                <Button Content="✓ CONFIRMER" Click="OnConfirmerClick" />
+                <Button Content="✎ MODIFIER" Click="OnModifierClick" />
+                <Button Content="✗ REFUSER" Click="OnRefuserClick" />
+                <Button Content="Annuler" Click="OnAnnulerClick" />
+            </StackPanel>
         </StackPanel>
-    </StackPanel>
+    </ScrollViewer>
 </Window>

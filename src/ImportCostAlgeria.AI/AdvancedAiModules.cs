@@ -8,21 +8,86 @@ using ImportCostAlgeria.RegulatoryEngine;
 namespace ImportCostAlgeria.AI;
 
 /// <summary>
-/// Entrée d'analyse pour la classification SH par IA (Section 16).
+/// Entrée d'analyse pour la classification SH par IA (Section 16 ; enrichie lors de la revue du
+/// 2026-10-01, point 4 : Matière/Fonction/présence d'un document technique viennent s'ajouter, en fin
+/// de liste et avec une valeur par défaut, pour ne jamais casser les appels existants).
 /// </summary>
 public sealed record HsClassificationInput(
     string Reference,
     string Designation,
     string? Description,
     string? OriginCountryIso2,
-    string? AdditionalInformation);
+    string? AdditionalInformation,
+    string? Material = null,
+    string? Function = null,
+    bool HasTechnicalDocumentOrPhoto = false);
+
+/// <summary>
+/// Revue du 2026-10-01 (point 4 — Classification IA du code SH) : UN candidat de classification SH parmi
+/// (au maximum) les 3 proposés par <see cref="IHsClassificationService.ClassifyCandidates"/>. Chaque
+/// candidat reste une PROPOSITION : il ne devient un code SH définitif qu'après validation humaine
+/// explicite (voir <see cref="HSClassifierService.ApplyUserDecisionOnImportLine"/>).
+/// </summary>
+public sealed record HsClassificationCandidate(
+    string HsCode10,
+    string TariffDescriptionFr,
+    string JustificationFr,
+    decimal ConfidencePercent,
+    string GeneralInterpretiveRuleUsed,
+    // Éléments de la saisie utilisateur (mots-clés, matière, fonction...) qui ont conduit à ce classement.
+    IReadOnlyList<string> SupportingInformationFr,
+    // Codes SH alternatifs plausibles (ambiguïtés douanières réelles connues pour cette famille de produits), avec leur propre justification.
+    IReadOnlyList<HsClassificationAlternative> AlternativeCandidates,
+    // Informations manquantes qui permettraient de trancher avec un niveau de confiance plus élevé (jamais inventées : énoncées explicitement).
+    IReadOnlyList<string> MissingInformationFr);
+
+/// <summary>Un code SH alternatif à un candidat principal, avec sa propre justification (point 4 de la revue).</summary>
+public sealed record HsClassificationAlternative(
+    string HsCode10,
+    string TariffDescriptionFr,
+    string JustificationFr);
+
+/// <summary>
+/// Revue du 2026-10-01 (point 4 — Classification IA du code SH) : abstraction du service de
+/// classification, afin de pouvoir commencer avec un service local (règles/mots-clés, voir
+/// <see cref="HSClassifierService"/>) puis connecter ultérieurement un vrai fournisseur IA externe
+/// (OpenAI, Azure AI, etc.) SANS changer le reste de l'application ni l'écran de validation humaine.
+/// Aucune implémentation de cette interface ne doit jamais valider un code SH de façon définitive :
+/// elle ne fait QUE proposer des candidats soumis à validation humaine (voir
+/// <see cref="HSClassifierService.ApplyUserDecisionOnImportLine"/>).
+/// </summary>
+public interface IHsClassificationService
+{
+    /// <summary>Identifiant de la source/version du service (traçabilité de la proposition — point 4 de la revue).</summary>
+    string ServiceNameAndVersion { get; }
+
+    /// <summary>
+    /// Propose JUSQU'À 3 codes SH candidats, classés par pertinence décroissante, à partir de la
+    /// description produit, de ses caractéristiques disponibles (matière, fonction...), de son origine et
+    /// d'éventuelles informations complémentaires. Si les informations fournies sont insuffisantes pour
+    /// identifier ne serait-ce qu'un candidat plausible, retourne UN SEUL candidat "INFORMATION NON
+    /// DÉTERMINÉE" explicitant les informations manquantes — n'invente JAMAIS de candidats supplémentaires
+    /// uniquement pour en afficher 3.
+    /// </summary>
+    IReadOnlyList<HsClassificationCandidate> ClassifyCandidates(HsClassificationInput input);
+}
 
 /// <summary>
 /// Service de classification SH par IA avec interdiction absolue de modifier automatiquement
 /// le code SH définitif sans validation explicite de l'utilisateur (Section 16 & 39).
+///
+/// Revue du 2026-10-01 (point 4) : implémente désormais <see cref="IHsClassificationService"/> pour
+/// exposer une classification à PLUSIEURS candidats (<see cref="ClassifyCandidates"/>), en plus de la
+/// méthode historique <see cref="ProposeHsCode"/> (un seul candidat) conservée telle quelle pour ne pas
+/// modifier le comportement déjà testé et utilisé par <see cref="RegulatoryAssistantEngine"/>. Reste un
+/// service purement LOCAL à base de règles/mots-clés (aucun appel réseau, aucune dépendance à un
+/// fournisseur IA externe) : un futur fournisseur réel n'aurait qu'à implémenter la même interface.
 /// </summary>
-public sealed class HSClassifierService
+public sealed class HSClassifierService : IHsClassificationService
 {
+    /// <inheritdoc />
+    public string ServiceNameAndVersion => "CIMP — Classification SH locale à base de règles (mots-clés), v1";
+
     private static readonly IReadOnlyList<(string[] Keywords, string HsCode10, string TariffDescFr, decimal Confidence, string RgiRule, string Justification)> KnowledgeBase = new[]
     {
         (
@@ -50,6 +115,32 @@ public sealed class HSClassifierService
             "Les roulements à billes sont dénommés spécifiquement à la sous-position 8482.10 indépendamment de la machine de destination (Note 2 Section XVI)."
         )
     };
+
+    /// <summary>
+    /// Codes SH alternatifs PLAUSIBLES et réellement documentés en pratique douanière pour chaque famille
+    /// de produits de <see cref="KnowledgeBase"/> (jamais inventés arbitrairement) : utilisés uniquement
+    /// par <see cref="ClassifyCandidates"/> pour enrichir l'affichage à l'utilisateur de "codes alternatifs"
+    /// et des informations manquantes qui permettraient de trancher.
+    /// </summary>
+    private static readonly IReadOnlyDictionary<string, (string HsCode10, string TariffDescFr, string JustificationFr)[]> AlternativesByPrimaryHsCode =
+        new Dictionary<string, (string, string, string)[]>
+        {
+            ["8708.99.90.00"] = new[]
+            {
+                ("4016.99.90.00", "Autres ouvrages en caoutchouc vulcanisé non durci",
+                 "Si la pièce est composée PRINCIPALEMENT de caoutchouc (et non de métal), le classement peut basculer du Chapitre 87 vers le Chapitre 40 : la composition matière exacte doit être confirmée avant validation définitive.")
+            },
+            ["8421.29.90.00"] = new[]
+            {
+                ("8421.99.00.00", "Parties d'appareils pour la filtration ou l'épuration des liquides ou des gaz",
+                 "S'il s'agit uniquement d'un élément/cartouche filtrant destiné à être inséré dans un appareil existant (et non de l'appareil de filtration complet), le classement correct est généralement une PARTIE (84.21.99) et non l'appareil lui-même (84.21.29).")
+            },
+            ["8482.10.00.00"] = new[]
+            {
+                ("8483.20.00.00", "Paliers avec roulements incorporés",
+                 "Si la pièce livrée est un PALIER complet incluant déjà le roulement intégré (et pas seulement le roulement nu), le classement correct est la position 84.83 (paliers) et non 84.82 (roulements seuls).")
+            }
+        };
 
     public HsClassificationAiProposal ProposeHsCode(HsClassificationInput input)
     {
@@ -86,6 +177,125 @@ public sealed class HSClassifierService
             GeneralInterpretiveRuleUsed: "RGI 1 — Information complémentaire requise",
             DecisionStatus: AiProposalDecision.PendingUserValidation,
             DataTag: DataOriginTag.PropositionIa);
+    }
+
+    /// <inheritdoc />
+    public IReadOnlyList<HsClassificationCandidate> ClassifyCandidates(HsClassificationInput input)
+    {
+        string haystack = $"{input.Reference} {input.Designation} {input.Description} {input.Material} {input.Function} {input.AdditionalInformation}"
+            .ToUpperInvariant();
+
+        // On choisit l'entrée de la base de connaissances dont le PLUS GRAND NOMBRE de mots-clés
+        // correspond réellement à la saisie (jamais un candidat choisi arbitrairement) : en cas d'égalité,
+        // on conserve l'ordre déclaratif de la base de connaissances.
+        var scoredEntries = KnowledgeBase
+            .Select(entry => new
+            {
+                Entry = entry,
+                MatchedKeywords = entry.Keywords.Where(k => haystack.Contains(k, StringComparison.OrdinalIgnoreCase)).ToArray()
+            })
+            .Where(x => x.MatchedKeywords.Length > 0)
+            .OrderByDescending(x => x.MatchedKeywords.Length)
+            .ToList();
+
+        var missingInfoIfAny = BuildMissingInformation(input);
+
+        if (scoredEntries.Count == 0)
+        {
+            // Aucun mot-clé reconnu : conformément à la Section 41 et au point 4 de la revue du
+            // 2026-10-01, on NE FABRIQUE PAS 3 candidats arbitraires — un seul candidat "INFORMATION NON
+            // DÉTERMINÉE" est retourné, avec la liste complète des informations manquantes.
+            return new[]
+            {
+                new HsClassificationCandidate(
+                    HsCode10: "INFORMATION NON DÉTERMINÉE",
+                    TariffDescriptionFr: "Description technique insuffisante pour proposer une sous-position à 10 chiffres avec certitude.",
+                    JustificationFr: "Conformément à la Section 41, aucun code SH n'est inventé en l'absence d'éléments techniques suffisants.",
+                    ConfidencePercent: 0m,
+                    GeneralInterpretiveRuleUsed: "RGI 1 — Information complémentaire requise",
+                    SupportingInformationFr: Array.Empty<string>(),
+                    AlternativeCandidates: Array.Empty<HsClassificationAlternative>(),
+                    MissingInformationFr: missingInfoIfAny.Count > 0
+                        ? missingInfoIfAny
+                        : new[] { "Description détaillée du produit (matière, fonction, mode de fonctionnement) absente ou insuffisamment précise." })
+            };
+        }
+
+        var best = scoredEntries[0];
+        var supportingInfo = BuildSupportingInformation(input, best.MatchedKeywords);
+        var alternatives = AlternativesByPrimaryHsCode.TryGetValue(best.Entry.HsCode10, out var alts)
+            ? alts
+            : Array.Empty<(string HsCode10, string TariffDescFr, string JustificationFr)>();
+
+        var candidates = new List<HsClassificationCandidate>
+        {
+            new(
+                HsCode10: best.Entry.HsCode10,
+                TariffDescriptionFr: best.Entry.TariffDescFr,
+                JustificationFr: best.Entry.Justification,
+                ConfidencePercent: best.Entry.Confidence,
+                GeneralInterpretiveRuleUsed: best.Entry.RgiRule,
+                SupportingInformationFr: supportingInfo,
+                AlternativeCandidates: alternatives.Select(a => new HsClassificationAlternative(a.HsCode10, a.TariffDescFr, a.JustificationFr)).ToArray(),
+                MissingInformationFr: missingInfoIfAny)
+        };
+
+        // Les codes alternatifs documentés pour la famille de produits identifiée deviennent eux-mêmes des
+        // candidats à part entière (2e et 3e candidat), avec une confiance réduite reflétant qu'ils ne
+        // sont retenus que si une caractéristique précise (matière, nature exacte de la pièce...) diffère
+        // de l'hypothèse par défaut — jamais 3 candidats sans rapport entre eux.
+        foreach (var alt in alternatives.Take(2))
+        {
+            decimal altConfidence = Math.Max(best.Entry.Confidence - 35m, 10m);
+            candidates.Add(new HsClassificationCandidate(
+                HsCode10: alt.HsCode10,
+                TariffDescriptionFr: alt.TariffDescFr,
+                JustificationFr: alt.JustificationFr,
+                ConfidencePercent: altConfidence,
+                GeneralInterpretiveRuleUsed: best.Entry.RgiRule,
+                SupportingInformationFr: supportingInfo,
+                AlternativeCandidates: Array.Empty<HsClassificationAlternative>(),
+                MissingInformationFr: missingInfoIfAny));
+        }
+
+        return candidates.Take(3).ToList();
+    }
+
+    /// <summary>Formule, en français, les éléments de la saisie qui ont concrètement conduit au classement (jamais une justification générique non vérifiable).</summary>
+    private static List<string> BuildSupportingInformation(HsClassificationInput input, string[] matchedKeywords)
+    {
+        var items = new List<string>
+        {
+            $"Mot(s)-clé(s) reconnu(s) dans la désignation/description : {string.Join(", ", matchedKeywords)}."
+        };
+
+        if (!string.IsNullOrWhiteSpace(input.Material))
+            items.Add($"Matière déclarée : {input.Material}.");
+        if (!string.IsNullOrWhiteSpace(input.Function))
+            items.Add($"Fonction déclarée : {input.Function}.");
+        if (!string.IsNullOrWhiteSpace(input.OriginCountryIso2))
+            items.Add($"Origine déclarée : {input.OriginCountryIso2}.");
+        if (!string.IsNullOrWhiteSpace(input.Description))
+            items.Add($"Description complémentaire fournie : {input.Description}.");
+        if (input.HasTechnicalDocumentOrPhoto)
+            items.Add("Une fiche technique ou une photo a été jointe au dossier.");
+
+        return items;
+    }
+
+    /// <summary>Énonce explicitement ce qui manque pour fiabiliser le classement — jamais une estimation inventée à la place.</summary>
+    private static List<string> BuildMissingInformation(HsClassificationInput input)
+    {
+        var missing = new List<string>();
+
+        if (string.IsNullOrWhiteSpace(input.Material))
+            missing.Add("Composition matière (métal, caoutchouc, plastique, composite...) non précisée : déterminante pour écarter certaines ambiguïtés de classement (ex. Chapitre 40 vs Chapitre 87/84).");
+        if (string.IsNullOrWhiteSpace(input.Function))
+            missing.Add("Fonction précise de la pièce (ce à quoi elle sert exactement, sur quel ensemble elle se monte) non précisée.");
+        if (!input.HasTechnicalDocumentOrPhoto)
+            missing.Add("Aucune fiche technique ni photo fournie : un document technique (plan, fiche produit, photo) permettrait de confirmer ce classement avec un niveau de confiance plus élevé.");
+
+        return missing;
     }
 
     /// <summary>

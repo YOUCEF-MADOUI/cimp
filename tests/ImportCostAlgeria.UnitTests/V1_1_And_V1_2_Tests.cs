@@ -123,4 +123,106 @@ public sealed class V1_1_And_V1_2_Tests
         Assert.Equal("8708.99.90.00", line.HsCodeConfirmed10);
         Assert.Equal(AiProposalDecision.ConfirmedByUser, line.AiHsDecision);
     }
+
+    // 3bis. Revue du 2026-10-01 (point 4 — Classification IA du code SH, test matrice D) :
+    // IHsClassificationService.ClassifyCandidates doit renvoyer plusieurs candidats (code, désignation,
+    // justification, confiance, codes alternatifs, informations manquantes), jamais un code définitif.
+    [Fact]
+    public void AiHsClassifier_ClassifyCandidates_ShouldReturnMultipleCandidatesWithAlternativesAndConfidence()
+    {
+        IHsClassificationService classifier = new HSClassifierService();
+
+        Assert.False(string.IsNullOrWhiteSpace(classifier.ServiceNameAndVersion));
+
+        var candidates = classifier.ClassifyCandidates(new HsClassificationInput(
+            Reference: "PROD-A",
+            Designation: "ENGINE MOUNTING CHINA",
+            Description: "Support moteur antivibratoire caoutchouc-métal",
+            OriginCountryIso2: "CN",
+            AdditionalInformation: null));
+
+        // Plusieurs candidats (le meilleur + ses alternatives déclarées), jamais plus de 3.
+        Assert.True(candidates.Count >= 2 && candidates.Count <= 3);
+
+        var best = candidates[0];
+        Assert.Equal("8708.99.90.00", best.HsCode10);
+        Assert.Equal(87.0m, best.ConfidencePercent);
+        Assert.False(string.IsNullOrWhiteSpace(best.JustificationFr));
+        Assert.False(string.IsNullOrWhiteSpace(best.GeneralInterpretiveRuleUsed));
+        Assert.NotEmpty(best.SupportingInformationFr);
+
+        // Le code alternatif connu pour cette ambiguïté douanière (caoutchouc Ch.40 vs pièce Ch.87) doit apparaître.
+        var alternative = candidates[1];
+        Assert.Equal("4016.99.90.00", alternative.HsCode10);
+        Assert.True(alternative.ConfidencePercent < best.ConfidencePercent);
+        Assert.False(string.IsNullOrWhiteSpace(alternative.JustificationFr));
+    }
+
+    // 3ter. Sans aucune information exploitable, l'IA ne doit jamais inventer un code : elle doit renvoyer
+    // une information explicite "non déterminée" avec la liste concrète des informations manquantes.
+    [Fact]
+    public void AiHsClassifier_ClassifyCandidates_ShouldNeverInventACode_WhenNoKeywordMatches()
+    {
+        IHsClassificationService classifier = new HSClassifierService();
+
+        var candidates = classifier.ClassifyCandidates(new HsClassificationInput(
+            Reference: "PROD-X",
+            Designation: "ARTICLE SANS RAPPORT CONNU",
+            Description: null,
+            OriginCountryIso2: "FR",
+            AdditionalInformation: null));
+
+        Assert.Single(candidates);
+        Assert.Equal(0m, candidates[0].ConfidencePercent);
+        Assert.NotEmpty(candidates[0].MissingInformationFr);
+    }
+
+    // 3quater. Validation humaine obligatoire : le code finalement retenu par l'utilisateur (parmi les
+    // candidats proposés, ou saisi manuellement) est celui qu'applique ApplyUserDecisionOnImportLine —
+    // jamais une auto-sélection par l'IA du meilleur candidat.
+    [Fact]
+    public void AiHsClassifier_HumanValidation_ShouldApplyUserSelectedCandidate_NotNecessarilyTheBestOne()
+    {
+        var classifier = new HSClassifierService();
+        var candidates = classifier.ClassifyCandidates(new HsClassificationInput(
+            Reference: "PROD-A",
+            Designation: "ENGINE MOUNTING CHINA",
+            Description: "Support moteur antivibratoire caoutchouc-métal",
+            OriginCountryIso2: "CN",
+            AdditionalInformation: null));
+
+        // L'utilisateur choisit délibérément le 2ème candidat (alternative), pas le premier (le "meilleur").
+        var userSelected = candidates[1];
+        Assert.NotEqual(candidates[0].HsCode10, userSelected.HsCode10);
+
+        var proposalFromUserSelection = new HsClassificationAiProposal(
+            ProposalId: Guid.NewGuid(),
+            ProductReference: "PROD-A",
+            ProductDesignation: "ENGINE MOUNTING CHINA",
+            OriginCountryIso2: "CN",
+            ProposedHsCode10: userSelected.HsCode10,
+            ProposedTariffDescriptionFr: userSelected.TariffDescriptionFr,
+            ConfidencePercent: userSelected.ConfidencePercent,
+            JustificationFr: userSelected.JustificationFr,
+            GeneralInterpretiveRuleUsed: userSelected.GeneralInterpretiveRuleUsed,
+            DecisionStatus: AiProposalDecision.PendingUserValidation,
+            DataTag: DataOriginTag.PropositionIa);
+
+        var line = new ImportLine
+        {
+            LineNumber = 1,
+            ProductReference = "PROD-A",
+            Designation = "ENGINE MOUNTING CHINA",
+            Quantity = 500m,
+            UnitPurchasePrice = 10.0m,
+            CurrencyCode = "EUR"
+        };
+
+        classifier.ApplyUserDecisionOnImportLine(line, proposalFromUserSelection, AiProposalDecision.ConfirmedByUser);
+
+        // Le moteur réglementaire utilisera donc bien le code validé par l'humain (l'alternative), pas le
+        // "meilleur" candidat calculé automatiquement par l'IA.
+        Assert.Equal(userSelected.HsCode10, line.HsCodeConfirmed10);
+        Assert.Equal("4016.99.90.00", line.HsCodeConfirmed10);
+    }
 }
