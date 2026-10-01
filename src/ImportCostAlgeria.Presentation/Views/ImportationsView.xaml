@@ -60,7 +60,7 @@
                 <TextBox Text="{Binding TransportMode, UpdateSourceTrigger=PropertyChanged}" />
 
                 <Label Content="Taux de change manuel (optionnel — ⚠️ déclenche une alerte si différent du taux officiel)" />
-                <TextBox Text="{Binding ManualExchangeRateOverride, UpdateSourceTrigger=PropertyChanged, Converter={StaticResource FlexibleDecimalConverter}}" />
+                <TextBox Text="{Binding ManualExchangeRateOverride, UpdateSourceTrigger=LostFocus, Converter={StaticResource FlexibleDecimalConverter}}" />
 
                 <StackPanel Orientation="Horizontal" Margin="0,16,0,0">
                     <Button Content="Enregistrer"

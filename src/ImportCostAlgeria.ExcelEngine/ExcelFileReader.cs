@@ -5,6 +5,7 @@ using System.IO;
 using System.Linq;
 using System.Text;
 using ClosedXML.Excel;
+using ExcelDataReader;
 
 namespace ImportCostAlgeria.ExcelEngine;
 
@@ -13,13 +14,29 @@ namespace ImportCostAlgeria.ExcelEngine;
 /// Contrairement à <see cref="ExcelImporterService"/> (qui travaille sur une abstraction
 /// <see cref="RawExcelSheetData"/> déjà en mémoire), cette classe ouvre effectivement le fichier
 /// choisi par l'utilisateur (bouton "Importer Excel" de l'application Windows) :
-///   - .xlsx / .xlsm / .xls -> ClosedXML (première feuille non vide, ou feuille nommée si précisée) ;
-///   - .csv                 -> analyseur CSV tolérant (détection automatique du séparateur , ou ;).
+///   - .xlsx / .xlsm -> ClosedXML, en lisant UNIQUEMENT les valeurs (jamais de recalcul de formule,
+///                       voir <see cref="ReadCellTextWithoutEvaluatingFormulas"/>) ;
+///   - .xls          -> ExcelDataReader (ClosedXML NE SAIT PAS lire le format binaire historique .xls /
+///                       BIFF — ce n'est pas une limitation contournable côté ClosedXML, c'est un format
+///                       de fichier totalement différent de l'OOXML .xlsx) ;
+///   - .csv          -> analyseur CSV tolérant (détection automatique du séparateur , ou ;).
 /// Ne modifie et n'invente jamais de donnée : les cellules vides restent vides, à charge de
-/// l'utilisateur de les compléter via le mapping interactif ou la saisie manuelle.
+/// l'utilisateur de les compléter via le mapping interactif ou la saisie manuelle. Le fichier source
+/// n'est JAMAIS réécrit (ouverture en lecture seule uniquement, aucun appel à Save()/SaveAs()).
 /// </summary>
 public static class ExcelFileReader
 {
+    /// <summary>
+    /// Revue du 2026-10-01 : nécessaire pour qu'ExcelDataReader puisse décoder les classeurs .xls anciens
+    /// enregistrés avec une page de code DOS/ANSI (ex. CP1252, courant pour des fichiers français) —
+    /// ces encodages ne sont plus enregistrés par défaut en dehors de .NET Framework. L'enregistrement est
+    /// idempotent (sans effet s'il a déjà été fait, par exemple par un autre composant de l'application).
+    /// </summary>
+    static ExcelFileReader()
+    {
+        Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
+    }
+
     public static RawExcelSheetData ReadFirstSheet(string filePath, string? explicitWorksheetName = null)
     {
         if (!File.Exists(filePath))
@@ -29,13 +46,26 @@ public static class ExcelFileReader
 
         string extension = Path.GetExtension(filePath).ToLowerInvariant();
 
-        return extension switch
+        try
         {
-            ".csv" => ReadCsv(filePath),
-            ".xlsx" or ".xlsm" or ".xls" => ReadWorkbook(filePath, explicitWorksheetName),
-            _ => throw new NotSupportedException(
-                $"Format de fichier non pris en charge : '{extension}'. Formats acceptés : .xlsx, .xlsm, .xls, .csv.")
-        };
+            return extension switch
+            {
+                ".csv" => ReadCsv(filePath),
+                ".xlsx" or ".xlsm" => ReadWorkbook(filePath, explicitWorksheetName),
+                ".xls" => ReadLegacyXls(filePath),
+                _ => throw new NotSupportedException(
+                    $"Format de fichier non pris en charge : '{extension}'. Formats acceptés : .xlsx, .xlsm, .xls, .csv.")
+            };
+        }
+        catch (Exception ex) when (ex is not FileNotFoundException and not NotSupportedException)
+        {
+            // Revue du 2026-10-01 : on ne masque JAMAIS l'exception réelle derrière un message générique —
+            // elle est ré-encapsulée avec le chemin du fichier et le type d'exception d'origine conservé
+            // (ex.InnerException) pour que l'écran d'import puisse afficher une erreur technique utile
+            // (cause réelle + fichier concerné) plutôt qu'un message opaque du type "Function not supported".
+            throw new InvalidOperationException(
+                $"Échec de lecture du fichier '{Path.GetFileName(filePath)}' ({extension}) : {ex.GetType().Name} — {ex.Message}", ex);
+        }
     }
 
     private static RawExcelSheetData ReadWorkbook(string filePath, string? explicitWorksheetName)
@@ -61,7 +91,7 @@ public static class ExcelFileReader
         {
             string columnLetter = cell.WorksheetColumn().ColumnLetter();
             int columnIndex = cell.WorksheetColumn().ColumnNumber();
-            string rawHeader = cell.GetString().Trim();
+            string rawHeader = ReadCellTextWithoutEvaluatingFormulas(cell);
             if (string.IsNullOrWhiteSpace(rawHeader))
                 continue; // Colonne d'en-tête vide : ignorée, jamais inventée.
             headers.Add((columnLetter, columnIndex, rawHeader));
@@ -80,7 +110,7 @@ public static class ExcelFileReader
             foreach (var (columnLetter, columnIndex, _) in headers)
             {
                 var cell = row.Cell(columnIndex);
-                string value = cell.IsEmpty() ? string.Empty : cell.GetString().Trim();
+                string value = ReadCellTextWithoutEvaluatingFormulas(cell);
                 if (!string.IsNullOrEmpty(value))
                     rowHasAnyValue = true;
                 rowDict[columnLetter] = value;
@@ -91,6 +121,122 @@ public static class ExcelFileReader
         }
 
         return new RawExcelSheetData(Path.GetFileName(filePath), worksheet.Name, headers, dataRows);
+    }
+
+    /// <summary>
+    /// Revue du 2026-10-01 (correction urgente — erreur "Function not supported" à l'import) : cause
+    /// racine identifiée précisément. ClosedXML appelle son propre moteur de calcul interne (CalcEngine)
+    /// dès que l'on accède à <c>IXLCell.Value</c>, <c>GetString()</c> ou <c>GetFormattedString()</c> sur
+    /// une cellule CONTENANT UNE FORMULE. Ce moteur ne connaît qu'un sous-ensemble des fonctions Excel et
+    /// lève une exception "&lt;NOM_FONCTION&gt;() Function not supported" dès que le fichier fournisseur
+    /// utilise une fonction qu'il n'implémente pas (ex. RECHERCHEV/VLOOKUP vers un autre classeur,
+    /// SOMME.SI.ENS avancé, SI.CONDITIONS/IFS, JOINDRE.TEXTE/TEXTJOIN, formules matricielles dynamiques,
+    /// etc. — voir issues ClosedXML #1010, #1217, #2389) — et ce pour TOUTE la feuille, pas seulement la
+    /// cellule concernée, provoquant l'échec total de l'import même si une seule formule, sur une seule
+    /// cellule, est en cause.
+    ///
+    /// Or CIMP n'a besoin QUE de la valeur déjà calculée par Excel/le fournisseur et enregistrée dans le
+    /// fichier — jamais de recalculer sa formule. <see cref="IXLCell.CachedValue"/> restitue précisément
+    /// cette dernière valeur mise en cache SANS JAMAIS invoquer le moteur de calcul de ClosedXML, quelle
+    /// que soit la fonction utilisée dans la formule d'origine.
+    /// </summary>
+    private static string ReadCellTextWithoutEvaluatingFormulas(IXLCell cell)
+    {
+        if (cell.HasFormula)
+            return FormatCachedValue(cell.CachedValue);
+
+        return cell.IsEmpty() ? string.Empty : cell.GetString().Trim();
+    }
+
+    private static string FormatCachedValue(XLCellValue cachedValue)
+    {
+        return cachedValue.Type switch
+        {
+            XLDataType.Blank => string.Empty,
+            XLDataType.Boolean => cachedValue.GetBoolean() ? "VRAI" : "FAUX",
+            XLDataType.Number => cachedValue.GetNumber().ToString(CultureInfo.InvariantCulture),
+            XLDataType.Text => cachedValue.GetText().Trim(),
+            XLDataType.DateTime => cachedValue.GetDateTime().ToString("yyyy-MM-dd", CultureInfo.InvariantCulture),
+            XLDataType.TimeSpan => cachedValue.GetTimeSpan().ToString(),
+            // Valeur d'erreur de formule (#REF!, #DIV/0!, #N/A, etc., y compris quand Excel lui-même n'a
+            // pas pu calculer la formule) : on ne doit JAMAIS inventer une donnée à partir d'une erreur ->
+            // traitée comme une cellule vide, à charge de l'utilisateur de corriger son fichier source si
+            // la donnée est réellement indispensable.
+            XLDataType.Error => string.Empty,
+            _ => cachedValue.ToString() ?? string.Empty
+        };
+    }
+
+    /// <summary>
+    /// Revue du 2026-10-01 : lecture des classeurs .xls (binaire, BIFF2-8). ClosedXML ne prend en charge
+    /// QUE le format OOXML (.xlsx/.xlsm/.xltx/.xltm) — ce n'est pas une question de version ou de
+    /// configuration, le format .xls est structurellement différent et ClosedXML ne sait pas l'ouvrir.
+    /// ExcelDataReader lit nativement .xls ET .xlsx/.xlsm, et ne tente JAMAIS d'évaluer une formule : il
+    /// restitue uniquement la dernière valeur calculée et stockée dans le fichier par Excel/le fournisseur,
+    /// ce qui exclut par construction toute erreur de type "Function not supported".
+    /// </summary>
+    private static RawExcelSheetData ReadLegacyXls(string filePath)
+    {
+        using var stream = File.Open(filePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+        using var reader = ExcelReaderFactory.CreateReader(stream);
+
+        var dataSet = reader.AsDataSet(new ExcelDataSetConfiguration
+        {
+            ConfigureDataTable = _ => new ExcelDataTableConfiguration { UseHeaderRow = false }
+        });
+
+        if (dataSet.Tables.Count == 0 || dataSet.Tables[0].Rows.Count == 0)
+        {
+            string emptySheetName = dataSet.Tables.Count > 0 ? dataSet.Tables[0].TableName : "Feuille 1";
+            return new RawExcelSheetData(Path.GetFileName(filePath), emptySheetName, Array.Empty<(string, int, string)>(), Array.Empty<IReadOnlyDictionary<string, string>>());
+        }
+
+        var table = dataSet.Tables[0];
+        var headerRow = table.Rows[0];
+
+        var headers = new List<(string ColumnLetter, int ColumnIndex, string RawHeader)>();
+        for (int col = 0; col < table.Columns.Count; col++)
+        {
+            string raw = FormatLegacyCellValue(headerRow[col]).Trim();
+            if (string.IsNullOrWhiteSpace(raw))
+                continue; // Colonne d'en-tête vide : ignorée, jamais inventée.
+            headers.Add((ToColumnLetter(col + 1), col + 1, raw));
+        }
+
+        var dataRows = new List<IReadOnlyDictionary<string, string>>();
+        for (int rowIdx = 1; rowIdx < table.Rows.Count; rowIdx++)
+        {
+            var row = table.Rows[rowIdx];
+            bool rowHasAnyValue = false;
+            var rowDict = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+
+            foreach (var (columnLetter, columnIndex, _) in headers)
+            {
+                string value = columnIndex - 1 < table.Columns.Count ? FormatLegacyCellValue(row[columnIndex - 1]) : string.Empty;
+                if (!string.IsNullOrEmpty(value))
+                    rowHasAnyValue = true;
+                rowDict[columnLetter] = value;
+            }
+
+            if (rowHasAnyValue)
+                dataRows.Add(rowDict);
+        }
+
+        return new RawExcelSheetData(Path.GetFileName(filePath), table.TableName, headers, dataRows);
+    }
+
+    private static string FormatLegacyCellValue(object? rawValue)
+    {
+        return rawValue switch
+        {
+            null => string.Empty,
+            DBNull => string.Empty,
+            DateTime dt => dt.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture),
+            double d => d.ToString(CultureInfo.InvariantCulture),
+            decimal dec => dec.ToString(CultureInfo.InvariantCulture),
+            string s => s.Trim(),
+            _ => Convert.ToString(rawValue, CultureInfo.InvariantCulture)?.Trim() ?? string.Empty
+        };
     }
 
     private static RawExcelSheetData ReadCsv(string filePath)

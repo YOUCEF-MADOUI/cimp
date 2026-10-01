@@ -6,8 +6,22 @@
     <RootNamespace>ImportCostAlgeria.ExcelEngine</RootNamespace>
   </PropertyGroup>
   <ItemGroup>
-    <!-- Lecture réelle de fichiers .xlsx / .xls (Priorité 3 — Import Excel/CSV réel). -->
+    <!-- Lecture réelle de fichiers .xlsx / .xlsm (Priorité 3 — Import Excel/CSV réel). ClosedXML ne lit
+         QUE le format OOXML (.xlsx/.xlsm) ; il NE PREND PAS EN CHARGE le format binaire historique .xls
+         (BIFF8) — voir ExcelDataReader ci-dessous, utilisé spécifiquement pour .xls. -->
     <PackageReference Include="ClosedXML" Version="0.104.1" />
+
+    <!-- Revue du 2026-10-01 (correction urgente import Excel) : .xls (binaire, BIFF) n'est lisible par
+         AUCUNE fonctionnalité de ClosedXML. ExcelDataReader lit nativement .xls ET .xlsx/.xlsm sans
+         jamais tenter d'évaluer la moindre formule fournisseur (il ne recalcule rien, il restitue
+         uniquement les valeurs déjà calculées et enregistrées dans le fichier) : utilisé ici uniquement
+         pour la branche .xls de ExcelFileReader. -->
+    <PackageReference Include="ExcelDataReader" Version="3.8.0" />
+    <PackageReference Include="ExcelDataReader.DataSet" Version="3.8.0" />
+    <!-- Requis par ExcelDataReader sous .NET 8 pour les classeurs .xls anciens encodés avec des pages de
+         code DOS/ANSI (ex. CP1252 pour les accents français) : ces encodages ne sont plus enregistrés par
+         défaut hors .NET Framework. -->
+    <PackageReference Include="System.Text.Encoding.CodePages" Version="8.0.0" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\ImportCostAlgeria.Core\ImportCostAlgeria.Core.csproj" />

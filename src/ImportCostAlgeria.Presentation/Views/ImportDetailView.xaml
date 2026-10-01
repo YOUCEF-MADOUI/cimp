@@ -113,7 +113,7 @@
                               IsChecked="{Binding IsManualRateMode}" />
                     <StackPanel Orientation="Horizontal" Margin="0,4,0,16" Visibility="{Binding IsManualRateMode, Converter={StaticResource BoolToVisibilityConverter}}">
                         <Label Content="Taux manuel (1 devise = X DZD) :" />
-                        <TextBox Text="{Binding ManualRateValue, UpdateSourceTrigger=PropertyChanged, Converter={StaticResource FlexibleDecimalConverter}}" Width="120" />
+                        <TextBox Text="{Binding ManualRateValue, UpdateSourceTrigger=LostFocus, Converter={StaticResource FlexibleDecimalConverter}}" Width="120" />
                     </StackPanel>
 
                     <Separator Margin="0,4,0,12" />
@@ -129,7 +129,7 @@
                               IsChecked="{Binding IsManualAuthorizationRateMode}" />
                     <StackPanel Orientation="Horizontal" Margin="0,4,0,8" Visibility="{Binding IsManualAuthorizationRateMode, Converter={StaticResource BoolToVisibilityConverter}}">
                         <Label Content="Taux manuel (1 devise facture = X devise autorisation) :" />
-                        <TextBox Text="{Binding ManualAuthorizationRateValue, UpdateSourceTrigger=PropertyChanged, Converter={StaticResource FlexibleDecimalConverter}}" Width="120" />
+                        <TextBox Text="{Binding ManualAuthorizationRateValue, UpdateSourceTrigger=LostFocus, Converter={StaticResource FlexibleDecimalConverter}}" Width="120" />
                     </StackPanel>
 
                     <TextBlock Text="{Binding AuthorizationConversionSummary}" FontWeight="Bold" TextWrapping="Wrap" Margin="0,0,0,16" />

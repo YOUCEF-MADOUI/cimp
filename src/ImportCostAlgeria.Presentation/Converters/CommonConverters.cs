@@ -88,15 +88,42 @@ public sealed class CountToVisibilityConverter : IValueConverter
 ///   - tout autre champ de taux/montant décimal concerné.
 /// Ne convertit JAMAIS la valeur en double/float : uniquement <see cref="decimal.TryParse(string, NumberStyles, IFormatProvider, out decimal)"/>,
 /// qui préserve une précision décimale exacte (indispensable pour des montants monétaires).
+///
+/// Revue du 2026-10-01 (correction urgente — la virgule restait mal acceptée malgré la première
+/// correction) : DEUX causes supplémentaires, propres au binding WPF, empêchaient en pratique la saisie
+/// de "152,1552" même si <see cref="ImportCostAlgeria.Core.Services.FlexibleDecimalParser"/> analysait
+/// déjà correctement la virgule :
+///   1) Le formatage d'affichage (ci-dessous) utilisait <see cref="CultureInfo.CurrentCulture"/>, c'est-à-dire
+///      la culture régionale EFFECTIVE DE WINDOWS sur le poste de l'utilisateur. Or les champs de taux
+///      étaient liés avec <c>UpdateSourceTrigger=PropertyChanged</c> : CHAQUE frappe met donc à jour la
+///      propriété decimal source, qui déclenche aussitôt <see cref="System.ComponentModel.INotifyPropertyChanged"/>,
+///      ce qui fait que WPF réinjecte IMMÉDIATEMENT dans le TextBox le texte reformaté par <see cref="Convert"/>
+///      — à CHAQUE caractère tapé. Si la culture Windows de la machine n'utilise pas la virgule comme
+///      séparateur décimal (ex. anglais), WPF remplaçait alors sous les yeux de l'utilisateur la virgule
+///      qu'il venait de taper par un point, rendant la poursuite de la saisie (ex. passer de "152,1" à
+///      "152,15") pratiquement impossible. On ne dépend donc plus JAMAIS de la culture Windows courante
+///      pour l'affichage : une culture fixe (fr-FR) est utilisée, indépendamment du poste.
+///   2) Les bindings des champs de taux manuel sont passés de <c>UpdateSourceTrigger=PropertyChanged</c>
+///      à <c>UpdateSourceTrigger=LostFocus</c> (voir les vues XAML concernées) : la propriété decimal
+///      n'est donc mise à jour, et le texte reformaté, qu'une seule fois lorsque l'utilisateur quitte le
+///      champ (geste de "validation"), jamais pendant la frappe elle-même — exactement le comportement
+///      explicitement autorisé par la revue ("le taux affiché peut être normalisé après validation").
 /// </summary>
 public sealed class FlexibleDecimalConverter : IValueConverter
 {
+    /// <summary>
+    /// Culture FIXE utilisée pour l'affichage (jamais <see cref="CultureInfo.CurrentCulture"/>, qui varie
+    /// selon la configuration régionale Windows du poste) : garantit un rendu prévisible (virgule
+    /// française) quel que soit l'ordinateur sur lequel CIMP s'exécute.
+    /// </summary>
+    private static readonly CultureInfo DisplayCulture = CultureInfo.GetCultureInfo("fr-FR");
+
     public object? Convert(object? value, Type targetType, object parameter, CultureInfo culture)
     {
         return value switch
         {
             null => string.Empty,
-            decimal dec => dec.ToString("G29", CultureInfo.CurrentCulture),
+            decimal dec => dec.ToString("G29", DisplayCulture),
             _ => value.ToString() ?? string.Empty
         };
     }

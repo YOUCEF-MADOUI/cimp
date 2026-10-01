@@ -52,7 +52,7 @@
                     <TextBox Text="{Binding NewOriginCountryIso2, UpdateSourceTrigger=PropertyChanged}" MaxLength="2" />
 
                     <Label Content="Taux (%)" />
-                    <TextBox Text="{Binding NewRatePercent, UpdateSourceTrigger=PropertyChanged, Converter={StaticResource FlexibleDecimalConverter}}" />
+                    <TextBox Text="{Binding NewRatePercent, UpdateSourceTrigger=LostFocus, Converter={StaticResource FlexibleDecimalConverter}}" />
 
                     <Label Content="Assiette de calcul" />
                     <ComboBox ItemsSource="{Binding CalculationBases}" SelectedItem="{Binding NewCalculationBase}" />

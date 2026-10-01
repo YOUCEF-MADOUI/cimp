@@ -9,6 +9,13 @@
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.10.0" />
     <PackageReference Include="xunit" Version="2.9.0" />
     <PackageReference Include="xunit.runner.visualstudio" Version="2.8.2" />
+    <!-- Revue du 2026-10-01 (correction urgente import Excel) : utilisée UNIQUEMENT par les tests pour
+         générer un véritable fichier .xls (binaire, BIFF8) de test — ClosedXML ne sachant pas écrire ce
+         format historique, NPOI (bibliothèque tierce établie, licence Apache 2.0) sert ici exclusivement
+         de générateur de fixture de test, afin que ExcelFileReader.ReadFirstSheet soit testé contre un
+         VRAI fichier .xls et non une approximation. Aucune dépendance de production (ImportCostAlgeria.ExcelEngine
+         continue d'utiliser ExcelDataReader, pas NPOI, pour LIRE les .xls réels des fournisseurs). -->
+    <PackageReference Include="NPOI" Version="2.7.1" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\..\src\ImportCostAlgeria.Core\ImportCostAlgeria.Core.csproj" />

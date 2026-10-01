@@ -1,4 +1,5 @@
 using System;
+using System.Globalization;
 using System.Linq;
 using Xunit;
 using ImportCostAlgeria.Core.Domain;
@@ -123,6 +124,38 @@ public class CountrySearchAndDecimalInputTests
 
         Assert.True(success, $"La saisie '{input}' aurait dû être acceptée comme nombre decimal.");
         Assert.Equal((decimal)expectedAsDouble, result);
+    }
+
+    /// <summary>
+    /// Revue du 2026-10-01 (correction urgente — "Taux de change & Incoterm" → "Taux manuel") : jeu de
+    /// cas EXACT exigé pour le champ "Taux manuel", couvrant un entier simple (152), 1/2/4 décimales, en
+    /// notation virgule ET point, plus les cas de rejet explicitement demandés ("abc", "").
+    /// </summary>
+    [Theory]
+    [InlineData("152", "152")]
+    [InlineData("152,1", "152.1")]
+    [InlineData("152,15", "152.15")]
+    [InlineData("152,1552", "152.1552")]
+    [InlineData("152.1", "152.1")]
+    [InlineData("152.15", "152.15")]
+    [InlineData("152.1552", "152.1552")]
+    public void TryParse_ShouldAcceptTheExactRequiredSetOfManualRateInputs(string input, string expectedDecimalLiteral)
+    {
+        bool success = FlexibleDecimalParser.TryParse(input, out decimal result);
+
+        Assert.True(success, $"La saisie '{input}' aurait dû être acceptée comme taux manuel.");
+        Assert.Equal(decimal.Parse(expectedDecimalLiteral, CultureInfo.InvariantCulture), result);
+    }
+
+    [Theory]
+    [InlineData("abc")]
+    [InlineData("")]
+    public void TryParse_ShouldRejectTheExactRequiredSetOfInvalidManualRateInputs(string input)
+    {
+        bool success = FlexibleDecimalParser.TryParse(input, out decimal result);
+
+        Assert.False(success, $"La saisie '{input}' aurait dû être rejetée (jamais de valeur inventée).");
+        Assert.Equal(0m, result);
     }
 
     [Fact]

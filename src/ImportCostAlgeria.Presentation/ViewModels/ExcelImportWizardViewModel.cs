@@ -38,7 +38,7 @@ public sealed class ExcelImportWizardViewModel : ObservableObject
     private ImportOperation _operation = null!;
     private RawExcelSheetData? _sheet;
     private string _filePath = string.Empty;
-    private string _statusMessage = "Sélectionnez un fichier Excel (.xlsx) ou CSV à importer.";
+    private string _statusMessage = "Sélectionnez un fichier fournisseur à importer (.xlsx, .xlsm, .xls ou .csv).";
     private bool _readyToImport;
     private bool _saveAsTemplate;
     private string _templateName = string.Empty;
@@ -87,7 +87,9 @@ public sealed class ExcelImportWizardViewModel : ObservableObject
         var dialog = new OpenFileDialog
         {
             Title = "Choisir un fichier fournisseur (Excel ou CSV)",
-            Filter = "Fichiers Excel/CSV (*.xlsx;*.xls;*.csv)|*.xlsx;*.xls;*.csv|Tous les fichiers (*.*)|*.*"
+            // Revue du 2026-10-01 : .xlsm (classeur Excel avec macros) manquait du filtre de sélection,
+            // ce qui empêchait même de choisir ce type de fichier dans la boîte de dialogue Windows.
+            Filter = "Fichiers Excel/CSV (*.xlsx;*.xlsm;*.xls;*.csv)|*.xlsx;*.xlsm;*.xls;*.csv|Tous les fichiers (*.*)|*.*"
         };
         if (dialog.ShowDialog() != true) return;
 
