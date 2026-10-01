@@ -23,6 +23,7 @@
                     <DataGridTextColumn Header="Code SH" Binding="{Binding HsCode10}" Width="100" />
                     <DataGridTextColumn Header="Origine" Binding="{Binding OriginCountryIso2}" Width="60" />
                     <DataGridTextColumn Header="Taux %" Binding="{Binding RatePercent, StringFormat=N2}" Width="70" />
+                    <DataGridCheckBoxColumn Header="Applicable" Binding="{Binding IsApplicable, Mode=OneWay}" Width="70" IsReadOnly="True" />
                     <DataGridTextColumn Header="Valide du" Binding="{Binding ValidFrom, StringFormat=dd/MM/yyyy}" Width="90" />
                     <DataGridTextColumn Header="Valide au" Binding="{Binding ValidTo, StringFormat=dd/MM/yyyy}" Width="90" />
                     <DataGridTextColumn Header="Version" Binding="{Binding RegulatoryVersionCode}" Width="100" />
@@ -58,6 +59,10 @@
 
                     <Label Content="Date d'entrée en vigueur" />
                     <DatePicker SelectedDate="{Binding NewValidFrom}" />
+
+                    <CheckBox IsChecked="{Binding NewIsApplicable}" Margin="4,12,4,4">
+                        <TextBlock Text="Taxe applicable (décocher pour publier explicitement une non-applicabilité, ex : PRCT/TCS/DAPS sans objet pour ce code SH)" TextWrapping="Wrap" MaxWidth="260" />
+                    </CheckBox>
 
                     <TextBlock Text="Source légale (obligatoire — jamais de taux sans citation)" FontWeight="Bold" Margin="0,12,0,4" />
                     <Label Content="Niveau hiérarchique de la source" />

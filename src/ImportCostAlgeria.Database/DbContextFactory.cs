@@ -144,6 +144,9 @@ public static class DbContextFactory
             AddColumnIfMissing(connection, "ImportOperations", "AuthorizationCurrencyCode", "TEXT NOT NULL DEFAULT 'USD'");
             AddColumnIfMissing(connection, "ImportOperations", "ManualAuthorizationExchangeRateOverride", "TEXT NULL");
             AddColumnIfMissing(connection, "Users", "MustChangePasswordOnNextLogin", "INTEGER NOT NULL DEFAULT 0");
+            // Revue du 2026-10-01 (point 5 — Droits et taxes par code SH) : RegulatoryRule.IsApplicable.
+            // DEFAULT 1 (true) préserve le comportement de toutes les règles déjà publiées (applicables).
+            AddColumnIfMissing(connection, "RegulatoryRules", "IsApplicable", "INTEGER NOT NULL DEFAULT 1");
         }
         finally
         {

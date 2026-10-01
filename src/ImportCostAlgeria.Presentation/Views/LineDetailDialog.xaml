@@ -24,7 +24,25 @@
                 </StackPanel>
             </Grid>
 
-            <TextBlock Text="2. Taxes additionnelles et TVA à l'importation (avec source légale)" FontSize="14" FontWeight="Bold" Margin="0,16,0,4" />
+            <TextBlock Text="2. Droits et taxes par code SH — DD / PRCT / TCS / TVA / DAPS (applicabilité explicite)" FontSize="14" FontWeight="Bold" Margin="0,16,0,4" TextWrapping="Wrap" />
+            <TextBlock TextWrapping="Wrap" Margin="0,0,0,6">
+                <Run Text="Droit de Douane (DD) : " FontWeight="Bold" />
+                <Run Text="{Binding DroitDeDouaneStatutFr, Mode=OneWay}" />
+            </TextBlock>
+
+            <!-- Revue du 2026-10-01 (point 5 & 6) : PRCT, TCS, DAPS toujours listés explicitement, avec
+                 leur statut réel — jamais une absence silencieuse de ligne, jamais un taux inventé. -->
+            <DataGrid ItemsSource="{Binding TaxesStandardAvecApplicabilite}" IsReadOnly="True" AutoGenerateColumns="False" MaxHeight="180">
+                <DataGrid.Columns>
+                    <DataGridTextColumn Header="Taxe" Binding="{Binding TaxNameFr}" Width="220" />
+                    <DataGridTextColumn Header="Statut" Binding="{Binding StatusLabelFr}" Width="260" />
+                    <DataGridTextColumn Header="Base taxable DZD" Binding="{Binding TaxableBaseDzd, StringFormat=N2}" Width="120" />
+                    <DataGridTextColumn Header="Montant DZD" Binding="{Binding TaxAmountDzd, StringFormat=N2}" Width="110" />
+                    <DataGridTextColumn Header="Version réglementaire" Binding="{Binding RegulatoryVersionCode}" Width="140" />
+                </DataGrid.Columns>
+            </DataGrid>
+
+            <TextBlock Text="Détail des autres taxes additionnelles effectivement appliquées (avec source légale)" FontWeight="Bold" Margin="0,12,0,4" TextWrapping="Wrap" />
             <DataGrid ItemsSource="{Binding TaxesAppliquees}" IsReadOnly="True" MaxHeight="180">
                 <DataGrid.Columns>
                     <DataGridTextColumn Header="Taxe" Binding="{Binding TaxNameFr}" Width="140" />
@@ -37,9 +55,9 @@
                     <DataGridTextColumn Header="Version réglementaire" Binding="{Binding RegulatoryVersionCode}" Width="140" />
                 </DataGrid.Columns>
             </DataGrid>
-            <TextBlock Margin="0,8,0,0">
+            <TextBlock Margin="0,8,0,0" TextWrapping="Wrap">
                 <Run Text="TVA à l'importation : " FontWeight="Bold" />
-                <Run Text="{Binding Result.CustomsOutcome.VatRatePercent, Mode=OneWay, StringFormat={}{0:N2} %}" />
+                <Run Text="{Binding TvaStatutFr, Mode=OneWay}" />
                 <Run Text=" — " />
                 <Run Text="{Binding Result.CustomsOutcome.ImportVatAmountDzd, Mode=OneWay, StringFormat={}{0:N2} DZD}" />
             </TextBlock>

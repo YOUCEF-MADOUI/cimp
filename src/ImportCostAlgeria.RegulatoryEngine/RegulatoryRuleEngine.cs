@@ -38,6 +38,14 @@ public sealed class RegulatoryRule
     public string CustomsRegimeCode { get; init; } = "DROIT_COMMUN_4000";
     public required decimal RatePercent { get; init; }
     public required TaxableBaseType CalculationBase { get; init; }
+    // Revue du 2026-10-01 (point 5 — Droits et taxes par code SH) : une règle réglementaire peut déclarer
+    // EXPLICITEMENT qu'une taxe (ex: PRCT, TCS, DAPS) NE S'APPLIQUE PAS à ce code SH/cette origine/cette
+    // période — ceci est un FAIT réglementaire sourcé et versionné comme les autres (jamais une absence de
+    // données silencieuse). Par défaut (rétrocompatibilité des règles déjà publiées) la taxe est applicable.
+    // Voir RegulatoryRuleEngine.ResolveApplicableRules : une règle non applicable n'est JAMAIS incluse dans
+    // le calcul (AdditionalTaxRules) mais reste tracée séparément (NonApplicableTaxRules) pour affichage
+    // explicite "Non applicable" — à distinguer d'une simple absence de règle ("Donnée manquante").
+    public bool IsApplicable { get; init; } = true;
     public string? Condition { get; init; }
     public required DateOnly ValidFrom { get; init; }
     // ValidTo reste modifiable UNIQUEMENT pour "fermer" une période lors de la publication d'une
@@ -64,7 +72,45 @@ public sealed record RegulatoryResolutionOutcome(
     RegulatoryRule? CustomsDutyRule,
     RegulatoryRule? VatRule,
     IReadOnlyList<RegulatoryRule> AdditionalTaxRules,
-    IReadOnlyList<string> WarningsOrMissingInfo);
+    IReadOnlyList<string> WarningsOrMissingInfo,
+    // Revue du 2026-10-01 (point 5) : règles officielles en vigueur qui déclarent EXPLICITEMENT qu'une
+    // taxe ne s'applique pas (RegulatoryRule.IsApplicable == false) — jamais incluses dans le calcul,
+    // mais tracées pour que l'écran puisse afficher "Non applicable" (plutôt qu'un taux à 0 % ou une
+    // absence silencieuse de ligne).
+    IReadOnlyList<RegulatoryRule> NonApplicableTaxRules);
+
+/// <summary>
+/// Revue du 2026-10-01 (point 5 & 6 — Droits et taxes par code SH / Affichage écran Importation) :
+/// statut de présence réglementaire d'une taxe donnée pour un code SH/une date donnés, permettant à
+/// l'écran de distinguer explicitement 3 cas (jamais une absence silencieuse ni un taux inventé) :
+/// - Applicable : une règle officielle en vigueur a été trouvée, taux/base/montant connus ;
+/// - NonApplicable : une règle officielle en vigueur déclare EXPLICITEMENT que cette taxe ne s'applique
+///   pas à ce code SH (fait réglementaire sourcé, pas une supposition du logiciel) ;
+/// - DonneeManquante : aucune règle (ni applicable, ni explicitement non applicable) n'a été publiée —
+///   le logiciel n'invente rien et affiche "Donnée réglementaire manquante — validation requise."
+/// </summary>
+public enum TaxApplicabilityKind
+{
+    Applicable,
+    NonApplicable,
+    DonneeManquante
+}
+
+public sealed record TaxApplicabilityStatus(
+    string TaxCode,
+    string TaxNameFr,
+    TaxApplicabilityKind Kind,
+    RegulatoryRule? Rule)
+{
+    public decimal? RatePercent => Kind == TaxApplicabilityKind.Applicable ? Rule?.RatePercent : null;
+
+    public string DisplayStatusFr => Kind switch
+    {
+        TaxApplicabilityKind.Applicable => $"Applicable ({Rule!.RatePercent:N2} %)",
+        TaxApplicabilityKind.NonApplicable => "Non applicable",
+        _ => "Donnée réglementaire manquante — validation requise"
+    };
+}
 
 public interface IRegulatoryRuleRepository
 {
@@ -100,7 +146,8 @@ public sealed class RegulatoryRuleEngine
                 CustomsDutyRule: null,
                 VatRule: null,
                 AdditionalTaxRules: Array.Empty<RegulatoryRule>(),
-                WarningsOrMissingInfo: new[] { "Code SH absent : impossible de déterminer les droits et taxes réglementaires." });
+                WarningsOrMissingInfo: new[] { "Code SH absent : impossible de déterminer les droits et taxes réglementaires." },
+                NonApplicableTaxRules: Array.Empty<RegulatoryRule>());
         }
 
         string normalizedHs = NormalizeHsCode(query.HsCode10);
@@ -142,7 +189,8 @@ public sealed class RegulatoryRuleEngine
                 CustomsDutyRule: null,
                 VatRule: null,
                 AdditionalTaxRules: Array.Empty<RegulatoryRule>(),
-                WarningsOrMissingInfo: messages);
+                WarningsOrMissingInfo: messages,
+                NonApplicableTaxRules: Array.Empty<RegulatoryRule>());
         }
 
         // Sélection par : 1) Spécificité d'origine (origine exacte prioritaire sur droit commun),
@@ -161,7 +209,12 @@ public sealed class RegulatoryRuleEngine
         var dutyRule = SelectBestRule(RegulatoryRuleType.CustomsDuty);
         var vatRule = SelectBestRule(RegulatoryRuleType.Vat);
 
-        var additionalTaxRules = validOfficialRules
+        // Pour chaque autre taxe (PRCT, TCS, DAPS, TIC, RDAE...), on retient la règle officielle la plus
+        // pertinente pour ce code SH/cette origine/cette date. Revue du 2026-10-01 (point 5) : cette règle
+        // peut déclarer la taxe soit APPLICABLE (taux > 0 ou non, peu importe — le taux lui-même n'est
+        // jamais inventé), soit EXPLICITEMENT NON APPLICABLE (RegulatoryRule.IsApplicable == false) : dans
+        // ce 2e cas elle est exclue du calcul (AdditionalTaxRules) mais tracée séparément pour affichage.
+        var bestRulePerOtherTaxCode = validOfficialRules
             .Where(r => r.RuleType is not RegulatoryRuleType.CustomsDuty and not RegulatoryRuleType.Vat and not RegulatoryRuleType.Exemption)
             .GroupBy(r => r.TaxCode, StringComparer.OrdinalIgnoreCase)
             .Select(g => g
@@ -171,6 +224,9 @@ public sealed class RegulatoryRuleEngine
                 .ThenByDescending(r => r.ValidFrom)
                 .First())
             .ToList();
+
+        var additionalTaxRules = bestRulePerOtherTaxCode.Where(r => r.IsApplicable).ToList();
+        var nonApplicableTaxRules = bestRulePerOtherTaxCode.Where(r => !r.IsApplicable).ToList();
 
         if (dutyRule == null)
         {
@@ -190,8 +246,61 @@ public sealed class RegulatoryRuleEngine
             CustomsDutyRule: dutyRule,
             VatRule: vatRule,
             AdditionalTaxRules: additionalTaxRules,
-            WarningsOrMissingInfo: messages);
+            WarningsOrMissingInfo: messages,
+            NonApplicableTaxRules: nonApplicableTaxRules);
     }
+
+    /// <summary>
+    /// Revue du 2026-10-01 (point 5 & 6) : construit, pour une liste de codes de taxes "à toujours
+    /// vérifier" sur l'écran (ex: PRCT, TCS, DAPS), le statut réglementaire de chacune — Applicable,
+    /// explicitement NonApplicable, ou DonneeManquante — à partir du résultat déjà résolu par
+    /// <see cref="ResolveApplicableRules"/>. Ne recalcule RIEN et n'invente AUCUN taux : se contente de
+    /// classer les taxes déjà résolues (ou leur absence) pour un affichage explicite côté écran
+    /// Importation, conformément à l'exigence de ne jamais confondre "non applicable" et "donnée absente".
+    /// </summary>
+    public static IReadOnlyList<TaxApplicabilityStatus> BuildStandardTaxApplicabilityReport(
+        RegulatoryResolutionOutcome outcome,
+        IReadOnlyList<(string TaxCode, string TaxNameFr)> standardTaxCodesToCheck)
+    {
+        var report = new List<TaxApplicabilityStatus>();
+
+        foreach (var (taxCode, taxNameFr) in standardTaxCodesToCheck)
+        {
+            var applicableRule = outcome.AdditionalTaxRules
+                .FirstOrDefault(r => string.Equals(r.TaxCode, taxCode, StringComparison.OrdinalIgnoreCase));
+            if (applicableRule != null)
+            {
+                report.Add(new TaxApplicabilityStatus(taxCode, taxNameFr, TaxApplicabilityKind.Applicable, applicableRule));
+                continue;
+            }
+
+            var nonApplicableRule = outcome.NonApplicableTaxRules
+                .FirstOrDefault(r => string.Equals(r.TaxCode, taxCode, StringComparison.OrdinalIgnoreCase));
+            if (nonApplicableRule != null)
+            {
+                report.Add(new TaxApplicabilityStatus(taxCode, taxNameFr, TaxApplicabilityKind.NonApplicable, nonApplicableRule));
+                continue;
+            }
+
+            report.Add(new TaxApplicabilityStatus(taxCode, taxNameFr, TaxApplicabilityKind.DonneeManquante, null));
+        }
+
+        return report;
+    }
+
+    /// <summary>
+    /// Liste des codes de taxes additionnelles "standard" à toujours présenter sur l'écran Importation
+    /// (point 6 de la revue du 2026-10-01), au-delà de DD et TVA qui disposent déjà de leur propre
+    /// affichage dédié. Ceci ne contient AUCUN taux : uniquement des codes et libellés, pour savoir QUOI
+    /// vérifier dans les règles réglementaires publiées — les taux/applicabilité réels viennent toujours
+    /// exclusivement de <see cref="RegulatoryRule"/> (jamais codés en dur ici).
+    /// </summary>
+    public static readonly IReadOnlyList<(string TaxCode, string TaxNameFr)> StandardAdditionalTaxCodes = new[]
+    {
+        ("PRCT", "Précompte à l'importation (PRCT)"),
+        ("TCS", "Taxe de Contribution de Solidarité (TCS)"),
+        ("DAPS", "Droit Additionnel Provisoire de Sauvegarde (DAPS)")
+    };
 
     /// <summary>
     /// Workflow de validation administrative obligatoire (Section 21 & 39).

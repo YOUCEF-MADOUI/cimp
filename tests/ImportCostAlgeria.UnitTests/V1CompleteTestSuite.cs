@@ -440,6 +440,92 @@ public sealed class V1CompleteTestSuite
         Assert.Equal(12.0m, res2027.CustomsDutyRule!.RatePercent);
     }
 
+    // Revue du 2026-10-01 (point 5 — Droits et taxes par code SH, test matrice C) :
+    // un code SH disposant de règles officielles DD + PRCT + TCS + TVA doit exposer les quatre,
+    // chacune avec son propre taux/base/montant — jamais un taux PRCT=2%/TCS=3% codé en dur.
+    [Fact]
+    public void RegulatoryEngine_ShouldExposeDdPrctTcsVat_WhenAllFourAreOfficiallyPublished()
+    {
+        const string hsCode = "8708.99.90.00";
+        var rules = new[]
+        {
+            new RegulatoryRule { Code = "DD-1", RegulatoryVersionCode = "2026.01", RuleType = RegulatoryRuleType.CustomsDuty, TaxCode = "DD", TaxNameFr = "Droit de Douane", HsCode10 = hsCode, RatePercent = 15.0m, CalculationBase = TaxableBaseType.CustomsValueDzd, ValidFrom = new DateOnly(2026, 1, 1), LegalSource = OfficialJoraSource, Status = RegulatoryRuleStatus.PublishedNewVersion, ValidatedByAdminUserId = AdminId },
+            new RegulatoryRule { Code = "PRCT-1", RegulatoryVersionCode = "2026.01", RuleType = RegulatoryRuleType.SpecificTax, TaxCode = "PRCT", TaxNameFr = "Précompte à l'importation", HsCode10 = hsCode, RatePercent = 2.0m, CalculationBase = TaxableBaseType.CustomsValueDzd, ValidFrom = new DateOnly(2026, 1, 1), LegalSource = OfficialJoraSource, Status = RegulatoryRuleStatus.PublishedNewVersion, ValidatedByAdminUserId = AdminId },
+            new RegulatoryRule { Code = "TCS-1", RegulatoryVersionCode = "2026.01", RuleType = RegulatoryRuleType.SpecificTax, TaxCode = "TCS", TaxNameFr = "Taxe de Contribution de Solidarité", HsCode10 = hsCode, RatePercent = 2.0m, CalculationBase = TaxableBaseType.CustomsValueDzd, ValidFrom = new DateOnly(2026, 1, 1), LegalSource = OfficialJoraSource, Status = RegulatoryRuleStatus.PublishedNewVersion, ValidatedByAdminUserId = AdminId },
+            new RegulatoryRule { Code = "TVA-1", RegulatoryVersionCode = "2026.01", RuleType = RegulatoryRuleType.Vat, TaxCode = "TVA", TaxNameFr = "Taxe sur la Valeur Ajoutée", HsCode10 = hsCode, RatePercent = 19.0m, CalculationBase = TaxableBaseType.CustomsValuePlusDutiesAndTaxesExVatDzd, ValidFrom = new DateOnly(2026, 1, 1), LegalSource = OfficialJoraSource, Status = RegulatoryRuleStatus.PublishedNewVersion, ValidatedByAdminUserId = AdminId }
+        };
+
+        var engine = new RegulatoryRuleEngine(new InMemoryRegulatoryRuleRepository(rules));
+        var outcome = engine.ResolveApplicableRules(new RegulatoryLookupQuery(hsCode, "CN", new DateOnly(2026, 6, 15), "DROIT_COMMUN_4000"));
+
+        Assert.True(outcome.IsDetermined);
+        Assert.Equal(15.0m, outcome.CustomsDutyRule!.RatePercent);
+        Assert.Equal(19.0m, outcome.VatRule!.RatePercent);
+        Assert.Equal(2, outcome.AdditionalTaxRules.Count);
+        Assert.Contains(outcome.AdditionalTaxRules, r => r.TaxCode == "PRCT" && r.RatePercent == 2.0m);
+        Assert.Contains(outcome.AdditionalTaxRules, r => r.TaxCode == "TCS" && r.RatePercent == 2.0m);
+
+        var report = RegulatoryRuleEngine.BuildStandardTaxApplicabilityReport(outcome, RegulatoryRuleEngine.StandardAdditionalTaxCodes);
+        Assert.Equal(3, report.Count); // PRCT, TCS, DAPS
+        Assert.Equal(TaxApplicabilityKind.Applicable, report.Single(r => r.TaxCode == "PRCT").Kind);
+        Assert.Equal(TaxApplicabilityKind.Applicable, report.Single(r => r.TaxCode == "TCS").Kind);
+        Assert.Equal(TaxApplicabilityKind.DonneeManquante, report.Single(r => r.TaxCode == "DAPS").Kind);
+        Assert.Equal("Donnée réglementaire manquante — validation requise", report.Single(r => r.TaxCode == "DAPS").DisplayStatusFr);
+    }
+
+    // Revue du 2026-10-01 (point 5, test matrice C) : une taxe EXPLICITEMENT déclarée non applicable par
+    // une règle officielle (RegulatoryRule.IsApplicable = false) n'est JAMAIS incluse dans le calcul —
+    // mais elle doit être signalée "Non applicable", à distinguer d'une simple absence de donnée.
+    [Fact]
+    public void RegulatoryEngine_ShouldNeverCalculateAnExplicitlyNonApplicableTax()
+    {
+        const string hsCode = "1234.56.78.90";
+        var rules = new[]
+        {
+            new RegulatoryRule { Code = "DD-X", RegulatoryVersionCode = "2026.01", RuleType = RegulatoryRuleType.CustomsDuty, TaxCode = "DD", TaxNameFr = "Droit de Douane", HsCode10 = hsCode, RatePercent = 5.0m, CalculationBase = TaxableBaseType.CustomsValueDzd, ValidFrom = new DateOnly(2026, 1, 1), LegalSource = OfficialJoraSource, Status = RegulatoryRuleStatus.PublishedNewVersion, ValidatedByAdminUserId = AdminId },
+            new RegulatoryRule { Code = "TVA-X", RegulatoryVersionCode = "2026.01", RuleType = RegulatoryRuleType.Vat, TaxCode = "TVA", TaxNameFr = "Taxe sur la Valeur Ajoutée", HsCode10 = hsCode, RatePercent = 19.0m, CalculationBase = TaxableBaseType.CustomsValuePlusDutiesAndTaxesExVatDzd, ValidFrom = new DateOnly(2026, 1, 1), LegalSource = OfficialJoraSource, Status = RegulatoryRuleStatus.PublishedNewVersion, ValidatedByAdminUserId = AdminId },
+            new RegulatoryRule { Code = "DAPS-X", RegulatoryVersionCode = "2026.01", RuleType = RegulatoryRuleType.Daps, TaxCode = "DAPS", TaxNameFr = "Droit Additionnel Provisoire de Sauvegarde", HsCode10 = hsCode, RatePercent = 0m, IsApplicable = false, CalculationBase = TaxableBaseType.CustomsValueDzd, ValidFrom = new DateOnly(2026, 1, 1), LegalSource = OfficialJoraSource, Status = RegulatoryRuleStatus.PublishedNewVersion, ValidatedByAdminUserId = AdminId }
+        };
+
+        var engine = new RegulatoryRuleEngine(new InMemoryRegulatoryRuleRepository(rules));
+        var outcome = engine.ResolveApplicableRules(new RegulatoryLookupQuery(hsCode, "FR", new DateOnly(2026, 6, 15), "DROIT_COMMUN_4000"));
+
+        // La DAPS ne doit JAMAIS apparaître dans AdditionalTaxRules (donc jamais calculée/sommée).
+        Assert.DoesNotContain(outcome.AdditionalTaxRules, r => r.TaxCode == "DAPS");
+        Assert.Contains(outcome.NonApplicableTaxRules, r => r.TaxCode == "DAPS");
+
+        var report = RegulatoryRuleEngine.BuildStandardTaxApplicabilityReport(outcome, RegulatoryRuleEngine.StandardAdditionalTaxCodes);
+        var dapsStatus = report.Single(r => r.TaxCode == "DAPS");
+        Assert.Equal(TaxApplicabilityKind.NonApplicable, dapsStatus.Kind);
+        Assert.Equal("Non applicable", dapsStatus.DisplayStatusFr);
+        Assert.Null(dapsStatus.RatePercent); // Jamais de taux affiché pour une taxe non applicable.
+
+        // PRCT et TCS, pour lesquels aucune règle n'a jamais été publiée pour ce code SH : donnée manquante,
+        // jamais un taux inventé (ni 2 %, ni 3 %, ni aucune autre valeur).
+        Assert.Equal(TaxApplicabilityKind.DonneeManquante, report.Single(r => r.TaxCode == "PRCT").Kind);
+        Assert.Equal(TaxApplicabilityKind.DonneeManquante, report.Single(r => r.TaxCode == "TCS").Kind);
+    }
+
+    // Revue du 2026-10-01 (point 5, test matrice C) : en l'absence TOTALE de règle officielle pour un code
+    // SH, le moteur ne doit jamais inventer de taux — DD et TVA doivent rester "INFORMATION NON
+    // DÉTERMINÉE" et les 3 taxes standard doivent toutes être signalées "Donnée réglementaire manquante".
+    [Fact]
+    public void RegulatoryEngine_ShouldNeverInventARate_WhenNoRegulatoryDataExistsAtAllForTheHsCode()
+    {
+        var engine = new RegulatoryRuleEngine(new InMemoryRegulatoryRuleRepository(Array.Empty<RegulatoryRule>()));
+        var outcome = engine.ResolveApplicableRules(new RegulatoryLookupQuery("0000.00.00.00", "FR", new DateOnly(2026, 6, 15), "DROIT_COMMUN_4000"));
+
+        Assert.False(outcome.IsDetermined);
+        Assert.Null(outcome.CustomsDutyRule);
+        Assert.Null(outcome.VatRule);
+        Assert.Empty(outcome.AdditionalTaxRules);
+        Assert.Contains(outcome.WarningsOrMissingInfo, m => m.Contains("INFORMATION NON DÉTERMINÉE"));
+
+        var report = RegulatoryRuleEngine.BuildStandardTaxApplicabilityReport(outcome, RegulatoryRuleEngine.StandardAdditionalTaxCodes);
+        Assert.All(report, r => Assert.Equal(TaxApplicabilityKind.DonneeManquante, r.Kind));
+        Assert.All(report, r => Assert.Equal("Donnée réglementaire manquante — validation requise", r.DisplayStatusFr));
+    }
+
     // 14. Test d'intégration Import Excel, Détection "Prix Fournisseur", Modèle FOURNISSEUR_X
     [Fact]
     public void ExcelImport_ShouldRequestMappingForUnrecognizedColumn_ThenAutoRecognizeSavedTemplate()

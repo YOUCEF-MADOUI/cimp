@@ -183,6 +183,10 @@ public sealed class AdvancedRegulatoryService
                 "TVA" => "Taxe sur la Valeur Ajoutée",
                 "DAPS" => "Droit Additionnel Provisoire de Sauvegarde",
                 "TIC" => "Taxe Intérieure de Consommation",
+                // Revue du 2026-10-01 (point 5) : libellés d'affichage uniquement (aucun taux fixé ici,
+                // le taux reste toujours celui de la RegulatoryRule publiée par un Administrateur).
+                "PRCT" => "Précompte à l'importation",
+                "TCS" => "Taxe de Contribution de Solidarité",
                 _ => proposal.TaxCode
             },
             HsCode10 = proposal.HsCode10,

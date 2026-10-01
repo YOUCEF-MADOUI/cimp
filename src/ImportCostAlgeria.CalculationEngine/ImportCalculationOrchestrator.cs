@@ -66,7 +66,13 @@ public sealed record LineCustomsResult(
     string? CustomsDutyRegulatoryVersionCode = null,
     string? VatLegalArticleReference = null,
     string? VatJoraReference = null,
-    string? VatRegulatoryVersionCode = null);
+    string? VatRegulatoryVersionCode = null,
+    // Revue du 2026-10-01 (point 5 & 6 — Droits et taxes par code SH / Affichage écran Importation) :
+    // statut explicite (Applicable / Non applicable / Donnée manquante) des taxes additionnelles
+    // "standard" (PRCT, TCS, DAPS) pour ce code SH/cette date, construit UNIQUEMENT à partir des règles
+    // réglementaires réellement résolues (RegulatoryRuleEngine.BuildStandardTaxApplicabilityReport) —
+    // jamais un taux inventé ni une absence silencieuse. Liste vide si le code SH n'a pas pu être résolu.
+    IReadOnlyList<TaxApplicabilityStatus>? StandardTaxApplicability = null);
 
 /// <summary>
 /// Résultat 2 (Section 26) : Coût d'acquisition et Coût de revient économique réel.
@@ -864,6 +870,12 @@ public sealed class ImportCalculationOrchestrator
 
             decimal totalAdditionalTaxesDzd = additionalTaxBreakdowns.Sum(t => t.TaxAmountDzd);
 
+            // Revue du 2026-10-01 (point 5 & 6) : statut explicite des taxes additionnelles "standard"
+            // (PRCT, TCS, DAPS) pour affichage sur l'écran Importation — construit uniquement à partir du
+            // résultat déjà résolu ci-dessus (regOutcome), sans recalcul ni invention de taux.
+            var standardTaxApplicability = RegulatoryRuleEngine.BuildStandardTaxApplicabilityReport(
+                regOutcome, RegulatoryRuleEngine.StandardAdditionalTaxCodes);
+
             // 6. TVA à l'importation (Art. 19 CTCA : Assiette = Valeur en douane + Droits de douane + Taxes hors TVA)
             decimal vatTaxableBaseDzd = CurrencyCalculator.RoundDzd(customsValueDzd + customsDutyDzd + totalAdditionalTaxesDzd);
             decimal appliedVatRate = regOutcome.VatRule?.RatePercent ?? 0m;
@@ -894,7 +906,8 @@ public sealed class ImportCalculationOrchestrator
                 CustomsDutyRegulatoryVersionCode: regOutcome.CustomsDutyRule?.RegulatoryVersionCode,
                 VatLegalArticleReference: regOutcome.VatRule?.LegalSource.ArticleReference,
                 VatJoraReference: regOutcome.VatRule?.LegalSource.JoraReference,
-                VatRegulatoryVersionCode: regOutcome.VatRule?.RegulatoryVersionCode);
+                VatRegulatoryVersionCode: regOutcome.VatRule?.RegulatoryVersionCode,
+                StandardTaxApplicability: standardTaxApplicability);
 
             // Résultat 2 (Section 26) : Coût d'acquisition et Coût de revient économique réel
             decimal feesInCustomsValueDzd = lineAllocations

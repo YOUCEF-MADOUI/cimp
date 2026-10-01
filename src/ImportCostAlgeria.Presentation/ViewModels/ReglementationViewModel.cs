@@ -34,6 +34,10 @@ public sealed class ReglementationViewModel : ObservableObject
     private decimal _newRatePercent;
     private TaxableBaseType _newCalculationBase = TaxableBaseType.CustomsValueDzd;
     private DateTime _newValidFrom = DateTime.Today;
+    // Revue du 2026-10-01 (point 5 & 8) : permet à l'Administrateur de publier explicitement une règle
+    // "NON applicable" (ex: PRCT/TCS/DAPS déclarée sans objet pour ce code SH) plutôt que de simplement ne
+    // rien publier — ce qui serait ambigu avec une donnée manquante. Vrai par défaut (comportement inchangé).
+    private bool _newIsApplicable = true;
     private string _newOfficialTitle = string.Empty;
     private string _newJoraReference = string.Empty;
     private string _newArticleReference = string.Empty;
@@ -73,6 +77,7 @@ public sealed class ReglementationViewModel : ObservableObject
     public decimal NewRatePercent { get => _newRatePercent; set => SetField(ref _newRatePercent, value); }
     public TaxableBaseType NewCalculationBase { get => _newCalculationBase; set => SetField(ref _newCalculationBase, value); }
     public DateTime NewValidFrom { get => _newValidFrom; set => SetField(ref _newValidFrom, value); }
+    public bool NewIsApplicable { get => _newIsApplicable; set => SetField(ref _newIsApplicable, value); }
     public string NewOfficialTitle { get => _newOfficialTitle; set => SetField(ref _newOfficialTitle, value); }
     public string NewJoraReference { get => _newJoraReference; set => SetField(ref _newJoraReference, value); }
     public string NewArticleReference { get => _newArticleReference; set => SetField(ref _newArticleReference, value); }
@@ -134,6 +139,7 @@ public sealed class ReglementationViewModel : ObservableObject
                 OriginCountryIso2 = string.IsNullOrWhiteSpace(NewOriginCountryIso2) ? null : NewOriginCountryIso2!.Trim(),
                 RatePercent = NewRatePercent,
                 CalculationBase = NewCalculationBase,
+                IsApplicable = NewIsApplicable,
                 ValidFrom = validFrom,
                 LegalSource = legalSource,
                 Status = RegulatoryRuleStatus.PublishedNewVersion,
