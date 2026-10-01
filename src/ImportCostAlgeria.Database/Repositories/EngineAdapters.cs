@@ -31,18 +31,29 @@ public sealed class EfRegulatoryRuleRepository : IRegulatoryRuleRepository
     }
 }
 
-/// <summary>Adaptateur EF Core de <see cref="IExchangeRateProvider"/> (Sections 13 & 14).</summary>
+/// <summary>
+/// Adaptateur EF Core de <see cref="IExchangeRateProvider"/> (Sections 13 & 14, étendu Section 6 du plan
+/// multi-devises). Une même table <c>ExchangeRates</c> porte à la fois les taux réglementaires
+/// (CurrencyCode -&gt; DZD) et les taux commerciaux cross-rate (ex: EUR -&gt; USD), distingués par
+/// <see cref="ExchangeRateRecord.QuoteCurrencyCode"/> — jamais de confusion possible entre les deux car
+/// chaque lecture filtre explicitement sur la devise de cotation demandée.
+/// </summary>
 public sealed class EfExchangeRateProvider : IExchangeRateProvider
 {
     private readonly ICimpDbContextFactory _factory;
     public EfExchangeRateProvider(ICimpDbContextFactory factory) => _factory = factory;
 
-    public ExchangeRateRecord? GetRegulatoryRate(string currencyCode, DateOnly referenceDate)
+    public ExchangeRateRecord? GetRegulatoryRate(string currencyCode, DateOnly referenceDate) =>
+        GetRate(currencyCode, "DZD", referenceDate);
+
+    public ExchangeRateRecord? GetRate(string fromCurrencyCode, string toCurrencyCode, DateOnly referenceDate)
     {
         using var ctx = _factory.CreateGlobal();
-        string normalized = currencyCode.Trim().ToUpperInvariant();
+        string normalizedFrom = fromCurrencyCode.Trim().ToUpperInvariant();
+        string normalizedTo = toCurrencyCode.Trim().ToUpperInvariant();
         return ctx.ExchangeRates.AsNoTracking()
-            .Where(r => r.CurrencyCode == normalized
+            .Where(r => r.CurrencyCode == normalizedFrom
+                        && r.QuoteCurrencyCode == normalizedTo
                         && r.ValidFrom <= referenceDate
                         && (r.ValidTo == null || r.ValidTo >= referenceDate))
             .OrderByDescending(r => r.ValidFrom)

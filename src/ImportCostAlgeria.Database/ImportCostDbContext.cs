@@ -139,6 +139,8 @@ public sealed class ImportCostDbContext : DbContext
             b.HasQueryFilter(op => _currentCompanyId == null || op.CompanyId == _currentCompanyId);
             b.HasIndex(op => new { op.CompanyId, op.ImportNumber }).IsUnique();
             b.Property(x => x.ManualExchangeRateOverride).HasPrecision(18, 6);
+            b.Property(x => x.AuthorizationCurrencyCode).IsRequired().HasMaxLength(8).HasDefaultValue("USD");
+            b.Property(x => x.ManualAuthorizationExchangeRateOverride).HasPrecision(18, 6);
             b.HasMany(op => op.Lines).WithOne().HasForeignKey("ImportOperationId").OnDelete(DeleteBehavior.Cascade);
             b.HasMany(op => op.Fees).WithOne().HasForeignKey("ImportOperationId").OnDelete(DeleteBehavior.Cascade);
             b.Navigation(op => op.Lines).AutoInclude();
@@ -182,7 +184,11 @@ public sealed class ImportCostDbContext : DbContext
             b.ToTable("ExchangeRates");
             b.HasKey(x => x.Id);
             b.Property(x => x.RateToDzd).HasPrecision(18, 6);
-            b.HasIndex(x => new { x.CurrencyCode, x.ValidFrom });
+            b.Property(x => x.QuoteCurrencyCode).IsRequired().HasMaxLength(8).HasDefaultValue("DZD");
+            // Section 6 du plan multi-devises : l'index doit inclure la devise de cotation car une même
+            // devise de base (ex: EUR) peut désormais avoir un historique de taux vers plusieurs devises de
+            // cotation distinctes (EUR->DZD réglementaire ET EUR->USD commercial).
+            b.HasIndex(x => new { x.CurrencyCode, x.QuoteCurrencyCode, x.ValidFrom });
         });
 
         modelBuilder.Entity<RegulatoryRule>(b =>

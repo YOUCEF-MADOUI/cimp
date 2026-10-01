@@ -163,11 +163,55 @@ public sealed class Company
     public bool IsImportVatNonRecoverable { get; set; } = true;
 }
 
+/// <summary>
+/// Taux de change versionné et historisé (Sections 13 &amp; 14), aujourd'hui utilisé pour deux usages
+/// clairement séparés (Section 6 du plan "multi-devises") :
+///   - <b>Taux réglementaire/douanier</b> : <see cref="CurrencyCode"/> -&gt; DZD (<see cref="QuoteCurrencyCode"/>
+///     reste à sa valeur par défaut "DZD"), consommé exclusivement par le moteur de calcul douanier
+///     (<see cref="ImportCostAlgeria.CalculationEngine.CurrencyCalculator"/>) — c'est la seule conversion qui
+///     alimente la valeur en douane, les droits et les taxes.
+///   - <b>Taux commercial (cross-rate)</b> : <see cref="CurrencyCode"/> -&gt; <see cref="QuoteCurrencyCode"/>
+///     différent de DZD (ex: EUR -&gt; USD), consommé par
+///     <see cref="ImportCostAlgeria.CalculationEngine.CurrencyConversionService"/> pour calculer la valeur
+///     de l'autorisation d'importation (Section 13) — cette conversion n'entre JAMAIS dans le calcul
+///     douanier/réglementaire (Section 14 & 22 : "ne pas mélanger conversion commerciale et réglementaire").
+/// Les deux usages partagent la même table/le même historique versionné et le même mécanisme de
+/// publication "jamais d'écrasement" (voir ExchangeRateAdminRepository.PublishNewRate), ce qui évite de
+/// créer un second système concurrent pour les taux commerciaux (Section 7).
+/// </summary>
 public sealed class ExchangeRateRecord
 {
     public Guid Id { get; init; } = Guid.NewGuid();
+    /// <summary>Devise de base du taux (ex: EUR, USD) — "1 unité de CurrencyCode = RateToDzd / QuotityUnit unités de QuoteCurrencyCode".</summary>
     public required string CurrencyCode { get; init; }
+    /// <summary>
+    /// Devise de cotation du taux. Par défaut "DZD" (taux réglementaire/douanier classique, seul cas qui
+    /// existait avant l'ajout de la gestion multi-devises). Une valeur différente de "DZD" (ex: "USD")
+    /// représente un taux commercial cross-rate (ex: EUR coté en USD), qui ne doit jamais être utilisé
+    /// pour un calcul douanier.
+    /// </summary>
+    public string QuoteCurrencyCode { get; init; } = "DZD";
+    /// <summary>
+    /// Montant en <see cref="QuoteCurrencyCode"/> correspondant à <see cref="QuotityUnit"/> unités de
+    /// <see cref="CurrencyCode"/> (nom historique conservé pour compatibilité : représente la cotation
+    /// brute telle que publiée par la source, pas nécessairement déjà ramenée à 1 unité).
+    /// </summary>
     public required decimal RateToDzd { get; init; }
+    /// <summary>
+    /// Quotité : nombre d'unités de <see cref="CurrencyCode"/> auxquelles correspond <see cref="RateToDzd"/>.
+    /// Convention des cotations de change (notamment Banque d'Algérie) : certaines devises sont publiées
+    /// "pour 100 unités" ou "pour 1000 unités" afin de conserver suffisamment de précision décimale.
+    /// Exemple : RateToDzd = 134.5678 avec QuotityUnit = 100 signifie "100 unités de CurrencyCode valent
+    /// 134.5678 unités de QuoteCurrencyCode", soit un taux unitaire de 134.5678 / 100 = 1.345678.
+    /// Pour EUR/USD/DZD en pratique, QuotityUnit vaut 1 (devises à valeur unitaire "normale"), mais le
+    /// champ reste disponible pour toute devise future nécessitant une cotation pour plusieurs unités.
+    /// Le taux manuel saisi par un utilisateur (<see cref="ImportOperation.ManualExchangeRateOverride"/>,
+    /// <see cref="ImportOperation.ManualAuthorizationExchangeRateOverride"/>) est TOUJOURS exprimé "pour 1
+    /// unité" (convention de l'écran de saisie) : toute comparaison entre un taux manuel et un taux
+    /// officiel doit donc impérativement normaliser le taux officiel par sa quotité avant de comparer,
+    /// afin que les deux valeurs représentent la même unité économique (voir
+    /// <see cref="ImportCostAlgeria.CalculationEngine.CurrencyCalculator.ResolveRate"/>).
+    /// </summary>
     public int QuotityUnit { get; init; } = 1;
     public required DateOnly ValidFrom { get; init; }
     // ValidTo reste modifiable UNIQUEMENT pour "fermer" une période lors de la publication d'une
@@ -209,8 +253,36 @@ public sealed class ImportOperation
     /// Section 6 : Le pays d'expédition est saisi UNE SEULE FOIS au niveau de l'importation.
     /// </summary>
     public required string ExportShippingCountryIso2 { get; set; }
+    /// <summary>
+    /// Devise originale de la facture fournisseur (Section 4 — "ne jamais remplacer la devise originale").
+    /// Reste la devise de référence pour toutes les lignes/frais saisis dans cette opération.
+    /// </summary>
     public required string MainCurrencyCode { get; set; }
+    /// <summary>
+    /// Taux de change MANUEL réglementaire/douanier (<see cref="MainCurrencyCode"/> -&gt; DZD), saisi "pour
+    /// 1 unité de devise". Alimente directement le calcul douanier (valeur en douane, droits, taxes) via
+    /// <see cref="ImportCostAlgeria.CalculationEngine.CurrencyCalculator.ResolveRate"/>. Ne concerne QUE la
+    /// conversion réglementaire : voir <see cref="ManualAuthorizationExchangeRateOverride"/> pour la
+    /// conversion commerciale distincte vers la devise d'autorisation d'importation (Section 6 & 14).
+    /// </summary>
     public decimal? ManualExchangeRateOverride { get; set; }
+    /// <summary>
+    /// Devise dans laquelle l'autorisation d'importation (domiciliation bancaire) doit être exprimée
+    /// (Section 13). Par défaut "USD" conformément au besoin fonctionnel actuel ; reste modifiable pour
+    /// rester extensible à d'autres devises d'autorisation. Lorsque différente de
+    /// <see cref="MainCurrencyCode"/>, une conversion commerciale (Section 5 & 6), strictement distincte de
+    /// la conversion réglementaire vers DZD, est calculée par
+    /// <see cref="ImportCostAlgeria.CalculationEngine.CurrencyConversionService"/> et exposée séparément
+    /// dans <see cref="ImportCostAlgeria.CalculationEngine.ImportCalculationSummary.CommercialAuthorizationConversion"/>.
+    /// </summary>
+    public string AuthorizationCurrencyCode { get; set; } = "USD";
+    /// <summary>
+    /// Taux de change MANUEL commercial (<see cref="MainCurrencyCode"/> -&gt; <see cref="AuthorizationCurrencyCode"/>,
+    /// ex: EUR -&gt; USD), saisi "pour 1 unité de devise". Strictement distinct du taux réglementaire
+    /// <see cref="ManualExchangeRateOverride"/> (Section 6 & 22 : "ne pas mélanger conversion commerciale et
+    /// réglementaire"). Null = utiliser le taux commercial officiel enregistré (si disponible).
+    /// </summary>
+    public decimal? ManualAuthorizationExchangeRateOverride { get; set; }
     public required IncotermCode Incoterm { get; set; }
     public string CustomsRegimeCode { get; set; } = "DROIT_COMMUN_4000";
     public CustomsValuationMethod ValuationMethod { get; set; } = CustomsValuationMethod.TransactionValue_Art16Ter;

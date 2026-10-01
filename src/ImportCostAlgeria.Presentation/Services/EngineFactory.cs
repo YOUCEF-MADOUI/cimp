@@ -27,6 +27,10 @@ public sealed class EngineFactory
     public IExchangeRateProvider CreateExchangeRateProvider() =>
         new EfExchangeRateProvider(_dbFactory);
 
+    /// <summary>Conversion COMMERCIALE entre devises quelconques (ex: EUR -> USD) — jamais réglementaire.</summary>
+    public CurrencyConversionService CreateCommercialConversionService() =>
+        new(CreateExchangeRateProvider());
+
     public ImportCalculationOrchestrator CreateOrchestrator()
     {
         var rateProvider = new EfExchangeRateProvider(_dbFactory);
@@ -34,7 +38,8 @@ public sealed class EngineFactory
             new CurrencyCalculator(rateProvider),
             new CostAllocationEngine(),
             new CustomsValueCalculator(),
-            CreateRegulatoryEngine());
+            CreateRegulatoryEngine(),
+            CreateCommercialConversionService());
     }
 
     public HSClassifierService CreateHsClassifier() => new();
