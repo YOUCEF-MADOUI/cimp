@@ -18,8 +18,12 @@ public sealed class InMemoryExchangeRateProvider : IExchangeRateProvider
     public InMemoryExchangeRateProvider(IEnumerable<ExchangeRateRecord> rates) => _rates = rates.ToList();
 
     public ExchangeRateRecord? GetRegulatoryRate(string currencyCode, DateOnly referenceDate) =>
+        GetRate(currencyCode, "DZD", referenceDate);
+
+    public ExchangeRateRecord? GetRate(string fromCurrencyCode, string toCurrencyCode, DateOnly referenceDate) =>
         _rates.FirstOrDefault(r =>
-            string.Equals(r.CurrencyCode, currencyCode, StringComparison.OrdinalIgnoreCase) &&
+            string.Equals(r.CurrencyCode, fromCurrencyCode, StringComparison.OrdinalIgnoreCase) &&
+            string.Equals(r.QuoteCurrencyCode, toCurrencyCode, StringComparison.OrdinalIgnoreCase) &&
             r.ValidFrom <= referenceDate &&
             (!r.ValidTo.HasValue || r.ValidTo.Value >= referenceDate));
 }
@@ -53,11 +57,13 @@ public sealed class V1CompleteTestSuite
         IEnumerable<ExchangeRateRecord> rates,
         IEnumerable<RegulatoryRule> rules)
     {
+        var rateProvider = new InMemoryExchangeRateProvider(rates);
         return new ImportCalculationOrchestrator(
-            new CurrencyCalculator(new InMemoryExchangeRateProvider(rates)),
+            new CurrencyCalculator(rateProvider),
             new CostAllocationEngine(),
             new CustomsValueCalculator(),
-            new RegulatoryRuleEngine(new InMemoryRegulatoryRuleRepository(rules)));
+            new RegulatoryRuleEngine(new InMemoryRegulatoryRuleRepository(rules)),
+            new CurrencyConversionService(rateProvider));
     }
 
     // 1. Test Conversion Devises & Détection Taux Manuel (Sections 13, 14, 42)

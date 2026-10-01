@@ -18,5 +18,7 @@
     <ProjectReference Include="..\..\src\ImportCostAlgeria.Reporting\ImportCostAlgeria.Reporting.csproj" />
     <ProjectReference Include="..\..\src\ImportCostAlgeria.Audit\ImportCostAlgeria.Audit.csproj" />
     <ProjectReference Include="..\..\src\ImportCostAlgeria.AI\ImportCostAlgeria.AI.csproj" />
+    <!-- Section 20 de l'audit : tests sur PasswordHasher.GenerateRandomPassword (sécurité du compte admin initial). -->
+    <ProjectReference Include="..\..\src\ImportCostAlgeria.Database\ImportCostAlgeria.Database.csproj" />
   </ItemGroup>
 </Project>
