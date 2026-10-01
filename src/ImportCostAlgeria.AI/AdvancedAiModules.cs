@@ -138,6 +138,21 @@ public sealed class RegulatoryAssistantEngine
     private readonly ImportSimulatorService _simulator;
     private readonly HSClassifierService _hsClassifier;
 
+    /// <summary>
+    /// Section 17 de l'audit : construit une citation légale à partir de la règle réglementaire
+    /// RÉELLEMENT résolue pour le calcul (jamais une référence générique codée en dur). Si aucune règle
+    /// officielle n'a été trouvée, l'absence est signalée explicitement plutôt que d'inventer une source.
+    /// </summary>
+    private static string FormatLegalCitation(string? legalArticleReference, string? joraReference)
+    {
+        if (string.IsNullOrWhiteSpace(legalArticleReference))
+            return "INFORMATION NON DÉTERMINÉE : aucune règle réglementaire officielle associée n'a été identifiée";
+
+        return string.IsNullOrWhiteSpace(joraReference)
+            ? legalArticleReference
+            : $"{legalArticleReference} — {joraReference}";
+    }
+
     public RegulatoryAssistantEngine(ImportSimulatorService simulator, HSClassifierService hsClassifier)
     {
         _simulator = simulator;
@@ -175,7 +190,7 @@ public sealed class RegulatoryAssistantEngine
                 statements.Add(new AssistantTaggedStatement(
                     DataOriginTag.DonneeOfficielle,
                     "DONNÉE OFFICIELLE",
-                    $"Ligne {d.LineNumber} (Code SH {srcLine.HsCodeConfirmed10}, Origine {srcLine.OriginCountryIso2}) : Taux réglementaire applicable au {operation.ReferenceDate:dd/MM/yyyy} = {d.CustomsOutcome.CustomsDutyRatePercent:F2} % (Art. 103 Code des Douanes)."));
+                    $"Ligne {d.LineNumber} (Code SH {srcLine.HsCodeConfirmed10}, Origine {srcLine.OriginCountryIso2}) : Taux réglementaire applicable au {operation.ReferenceDate:dd/MM/yyyy} = {d.CustomsOutcome.CustomsDutyRatePercent:F2} % ({FormatLegalCitation(d.CustomsOutcome.CustomsDutyLegalArticleReference, d.CustomsOutcome.CustomsDutyJoraReference)})."));
             }
 
             return new RegulatoryAssistantResponse(questionFr, statements);
@@ -215,6 +230,48 @@ public sealed class RegulatoryAssistantEngine
             return new RegulatoryAssistantResponse(questionFr, statements);
         }
 
+        // 3bis. « Quelle est la valeur en dollars de cette facture ? » / « Montant en USD ? »
+        if ((q.Contains("DOLLAR") || q.Contains("USD") || q.Contains("AUTORISATION")) &&
+            (q.Contains("VALEUR") || q.Contains("MONTANT") || q.Contains("COUT") || q.Contains("COÛT") || q.Contains("FACTURE")))
+        {
+            var conv = currentCalculation.CommercialAuthorizationConversion;
+            if (conv == null)
+            {
+                statements.Add(new AssistantTaggedStatement(
+                    DataOriginTag.CalculDuLogiciel,
+                    "CALCUL DU LOGICIEL",
+                    string.Equals(operation.MainCurrencyCode, operation.AuthorizationCurrencyCode, StringComparison.OrdinalIgnoreCase)
+                        ? $"La facture est déjà exprimée dans la devise d'autorisation ({operation.AuthorizationCurrencyCode}) : aucune conversion commerciale n'est nécessaire. Montant facture = {currentCalculation.TotalPurchaseValueMainCurrency:N2} {operation.MainCurrencyCode}."
+                        : "INFORMATION NON DÉTERMINÉE : aucun taux de change commercial n'est enregistré pour cette conversion. Veuillez publier le taux correspondant dans l'écran \"Taux de change\" avant de poser cette question."));
+                return new RegulatoryAssistantResponse(questionFr, statements);
+            }
+
+            statements.Add(new AssistantTaggedStatement(
+                DataOriginTag.DonneeOfficielle,
+                "DONNÉE OFFICIELLE",
+                $"Taux {conv.OriginalCurrencyCode}/{conv.AuthorizationCurrencyCode} utilisé : {conv.EffectiveRate:F4} ({conv.RateTypeLabelFr}{(conv.OfficialRateSourceName != null ? $" - {conv.OfficialRateSourceName}" : string.Empty)})."));
+            statements.Add(new AssistantTaggedStatement(
+                DataOriginTag.CalculDuLogiciel,
+                "CALCUL DU LOGICIEL",
+                $"Montant facture : {conv.OriginalTotalAmount:N2} {conv.OriginalCurrencyCode} × {conv.EffectiveRate:F4} = {conv.AuthorizationTotalAmount:N2} {conv.AuthorizationCurrencyCode} (valeur de l'autorisation d'importation). Pour mémoire, la valeur en douane réglementaire reste calculée séparément en DZD à partir de la devise d'origine ({conv.OriginalCurrencyCode}), jamais à partir de ce montant {conv.AuthorizationCurrencyCode} (Section 14 : conversion commerciale et conversion réglementaire ne sont jamais mélangées)."));
+            return new RegulatoryAssistantResponse(questionFr, statements);
+        }
+
+        // 3ter. « Quel est le coût total en euros ? » (ou toute devise = la devise originale de la facture)
+        if ((q.Contains("EN EUROS") || q.Contains("EUR") || q.Contains("DEVISE D'ORIGINE") || q.Contains("DEVISE ORIGINALE")) &&
+            (q.Contains("COUT") || q.Contains("COÛT") || q.Contains("VALEUR") || q.Contains("MONTANT")))
+        {
+            statements.Add(new AssistantTaggedStatement(
+                DataOriginTag.DonneeUtilisateur,
+                "DONNÉE UTILISATEUR",
+                $"Devise originale de la facture : {operation.MainCurrencyCode}."));
+            statements.Add(new AssistantTaggedStatement(
+                DataOriginTag.CalculDuLogiciel,
+                "CALCUL DU LOGICIEL",
+                $"Montant total de la facture dans sa devise originale : {currentCalculation.TotalPurchaseValueMainCurrency:N2} {operation.MainCurrencyCode}. Ce montant reste la référence commerciale (Section 4 : la devise originale n'est jamais remplacée par une conversion) ; le coût de revient économique réel calculé par le logiciel ({currentCalculation.TotalRealCostOfGoodsDzd:N2} DZD) intègre en plus les droits, taxes et frais réglementaires qui ne peuvent être déterminés qu'en DZD."));
+            return new RegulatoryAssistantResponse(questionFr, statements);
+        }
+
         // 4. « Quel est le code SH proposé pour ce produit ? »
         if (q.Contains("CODE SH") || q.Contains("SH PROPOSÉ"))
         {
@@ -234,7 +291,7 @@ public sealed class RegulatoryAssistantEngine
         statements.Add(new AssistantTaggedStatement(
             DataOriginTag.DonneeOfficielle,
             "DONNÉE OFFICIELLE",
-            $"Pour l'article {line1.ProductReference}, le droit de douane de {line1.CustomsOutcome.CustomsDutyRatePercent:F2} % et la TVA de {line1.CustomsOutcome.VatRatePercent:F2} % découlent de la réglementation douanière en vigueur au {operation.ReferenceDate:dd/MM/yyyy} (Art. 16 ter, 16 octies et 103 du Code des Douanes ; Art. 19 du CTCA)."));
+            $"Pour l'article {line1.ProductReference}, le droit de douane de {line1.CustomsOutcome.CustomsDutyRatePercent:F2} % ({FormatLegalCitation(line1.CustomsOutcome.CustomsDutyLegalArticleReference, line1.CustomsOutcome.CustomsDutyJoraReference)}) et la TVA de {line1.CustomsOutcome.VatRatePercent:F2} % ({FormatLegalCitation(line1.CustomsOutcome.VatLegalArticleReference, line1.CustomsOutcome.VatJoraReference)}) découlent de la réglementation douanière en vigueur au {operation.ReferenceDate:dd/MM/yyyy}."));
         statements.Add(new AssistantTaggedStatement(
             DataOriginTag.CalculDuLogiciel,
             "CALCUL DU LOGICIEL",
