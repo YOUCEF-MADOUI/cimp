@@ -353,7 +353,14 @@ public sealed class MultiCurrencyAndSecurityTests
             DefaultOriginCountryIso2 = "DE",
             MainCurrencyCode = "EUR",
             AuthorizationCurrencyCode = "USD",
-            Incoterm = IncotermCode.FOB,
+            // Correction (revue Visual Studio du 2026-10-01) : ce test porte UNIQUEMENT sur la séparation
+            // de la conversion commerciale EUR->USD et du calcul réglementaire EUR->DZD — il ne doit pas
+            // vérifier, incidemment, les règles de contrôle documentaire propres à l'Incoterm FOB (qui exige
+            // un frais FRET_INTERNATIONAL, volontairement absent ici). CFR ne requiert, lui, qu'une simple
+            // assurance (avertissement non bloquant), ce qui permet de tester la conversion de devises sans
+            // déclencher artificiellement une anomalie bloquante sans rapport avec l'objet du test. La
+            // logique métier du moteur de calcul relative aux Incoterms n'est pas modifiée.
+            Incoterm = IncotermCode.CFR,
             ArrivalPortOrBorder = "Port d'Alger",
             TransportMode = "Maritime",
             Lines = new List<ImportLine>
