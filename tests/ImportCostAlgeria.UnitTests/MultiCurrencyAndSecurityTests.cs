@@ -337,11 +337,21 @@ public sealed class MultiCurrencyAndSecurityTests
             }
         };
 
-        var rules = new[]
-        {
-            BuildCustomsDutyRule("8482.10.00.00", 15.0m),
-            BuildVatRule("8482.10.00.00", 19.0m)
-        };
+        // Correction (revue Visual Studio du 2026-10-01, 2e analyse) : la véritable cause de l'anomalie
+        // BLOQUANTE n'est pas l'Incoterm (FOB puis CFR) mais une donnée de test manquante. Le moteur
+        // réglementaire (RegulatoryRuleEngine.ResolveApplicableRules) n'accepte comme "règle officielle
+        // valide" que les règles PUBLIÉES ET VALIDÉES PAR UN ADMINISTRATEUR (ValidatedByAdminUserId non
+        // nul) — règle métier légitime, identique au principe de validation humaine déjà appliqué aux codes
+        // SH, qui n'est PAS modifiée ici. Sans cette validation, dutyRule/vatRule ne sont jamais résolues
+        // (IsDetermined = false), ce qui produit l'anomalie BLOQUANTE "REGULATORY_RULE_NOT_FOUND" — et ce,
+        // quel que soit l'Incoterm utilisé. Les autres tests de ce fichier ne sont pas affectés par cette
+        // même lacune car ils n'asserent pas HasBlockingAnomalies ; seul ce test (qui l'asserte) la révèle.
+        var dutyRule = BuildCustomsDutyRule("8482.10.00.00", 15.0m);
+        dutyRule.ValidatedByAdminUserId = Guid.NewGuid();
+        var vatRule = BuildVatRule("8482.10.00.00", 19.0m);
+        vatRule.ValidatedByAdminUserId = Guid.NewGuid();
+
+        var rules = new[] { dutyRule, vatRule };
 
         var operation = new ImportOperation
         {
