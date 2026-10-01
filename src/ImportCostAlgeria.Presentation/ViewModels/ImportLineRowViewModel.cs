@@ -103,6 +103,9 @@ public sealed class ImportLineRowViewModel : ObservableObject
                 OnPropertyChanged(nameof(CoutRevientDzd));
                 OnPropertyChanged(nameof(CoutUnitaireDzd));
                 OnPropertyChanged(nameof(EtatLabel));
+                OnPropertyChanged(nameof(AuthorizationCurrencyLabel));
+                OnPropertyChanged(nameof(AuthorizationUnitPrice));
+                OnPropertyChanged(nameof(AuthorizationTotalAmount));
             }
         }
     }
@@ -122,6 +125,12 @@ public sealed class ImportLineRowViewModel : ObservableObject
     public decimal? TvaDzd => Result?.CustomsOutcome.ImportVatAmountDzd;
     public decimal? CoutRevientDzd => Result?.EconomicOutcome.RealCostOfGoodsTotalDzd;
     public decimal? CoutUnitaireDzd => Result?.EconomicOutcome.UnitCostOfGoodsDzd;
+
+    // Section 12 du plan multi-devises : conversion COMMERCIALE (jamais réglementaire) de cette ligne vers
+    // la devise de l'autorisation d'importation — vide tant qu'aucune conversion n'est nécessaire/calculée.
+    public string? AuthorizationCurrencyLabel => Result?.AuthorizationConversion?.AuthorizationCurrencyCode;
+    public decimal? AuthorizationUnitPrice => Result?.AuthorizationConversion?.AuthorizationUnitPrice;
+    public decimal? AuthorizationTotalAmount => Result?.AuthorizationConversion?.AuthorizationTotalAmount;
 
     public string EtatLabel
     {

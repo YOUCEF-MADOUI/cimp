@@ -55,6 +55,10 @@
                             <DataGridTextColumn Header="TVA" Binding="{Binding TvaDzd, StringFormat=N2}" Width="80" IsReadOnly="True" />
                             <DataGridTextColumn Header="Coût de revient" Binding="{Binding CoutRevientDzd, StringFormat=N2}" Width="100" IsReadOnly="True" />
                             <DataGridTextColumn Header="Coût unitaire" Binding="{Binding CoutUnitaireDzd, StringFormat=N2}" Width="90" IsReadOnly="True" />
+                            <!-- Section 12 du plan multi-devises : colonnes de conversion COMMERCIALE (ex: EUR -> USD), vides quand non applicable -->
+                            <DataGridTextColumn Header="PU Autorisation" Binding="{Binding AuthorizationUnitPrice, StringFormat=N2}" Width="95" IsReadOnly="True" />
+                            <DataGridTextColumn Header="Total Autorisation" Binding="{Binding AuthorizationTotalAmount, StringFormat=N2}" Width="105" IsReadOnly="True" />
+                            <DataGridTextColumn Header="Dev. Autorisation" Binding="{Binding AuthorizationCurrencyLabel}" Width="90" IsReadOnly="True" />
                             <DataGridTextColumn Header="État" Binding="{Binding EtatLabel}" Width="100" IsReadOnly="True" />
                             <DataGridTemplateColumn Header="Détail" Width="130">
                                 <DataGridTemplateColumn.CellTemplate>
@@ -111,6 +115,24 @@
                         <Label Content="Taux manuel (1 devise = X DZD) :" />
                         <TextBox Text="{Binding ManualRateValue, UpdateSourceTrigger=PropertyChanged}" Width="120" />
                     </StackPanel>
+
+                    <Separator Margin="0,4,0,12" />
+
+                    <TextBlock Text="Autorisation d'importation (conversion commerciale, distincte du calcul douanier)" FontWeight="Bold" FontSize="14" Margin="0,0,0,4" />
+                    <StackPanel Orientation="Horizontal" Margin="0,0,0,4">
+                        <Label Content="Devise de l'autorisation d'importation :" />
+                        <TextBox Text="{Binding AuthorizationCurrencyCode, UpdateSourceTrigger=PropertyChanged}" Width="80" />
+                    </StackPanel>
+                    <TextBlock Text="{Binding AuthorizationExchangeRateInfo}" TextWrapping="Wrap" Margin="0,0,0,4" />
+
+                    <CheckBox Content="Utiliser un taux commercial manuel (⚠️ distinct du taux réglementaire ci-dessus)"
+                              IsChecked="{Binding IsManualAuthorizationRateMode}" />
+                    <StackPanel Orientation="Horizontal" Margin="0,4,0,8" Visibility="{Binding IsManualAuthorizationRateMode, Converter={StaticResource BoolToVisibilityConverter}}">
+                        <Label Content="Taux manuel (1 devise facture = X devise autorisation) :" />
+                        <TextBox Text="{Binding ManualAuthorizationRateValue, UpdateSourceTrigger=PropertyChanged}" Width="120" />
+                    </StackPanel>
+
+                    <TextBlock Text="{Binding AuthorizationConversionSummary}" FontWeight="Bold" TextWrapping="Wrap" Margin="0,0,0,16" />
 
                     <TextBlock Text="Recommandations liées à l'Incoterm" FontWeight="Bold" FontSize="14" Margin="0,0,0,4" />
                     <TextBlock Text="{Binding IncotermGuidance}" TextWrapping="Wrap" />

@@ -21,7 +21,9 @@ public sealed class TauxDeChangeViewModel : ObservableObject
     private readonly AuditTrailService _audit;
 
     private string _newCurrencyCode = "USD";
+    private string _newQuoteCurrencyCode = "DZD";
     private decimal _newRateToDzd;
+    private int _newQuotityUnit = 1;
     private DateTime _newValidFrom = DateTime.Today;
     private string _newSourceName = "Banque d'Algérie";
     private string _newRateType = "OFFICIEL_DOUANE_ALCES";
@@ -42,7 +44,16 @@ public sealed class TauxDeChangeViewModel : ObservableObject
     public ObservableCollection<ExchangeRateRecord> Rates { get; }
 
     public string NewCurrencyCode { get => _newCurrencyCode; set => SetField(ref _newCurrencyCode, value); }
+    /// <summary>
+    /// Section 6 du plan multi-devises : devise de cotation du taux publié. "DZD" (par défaut) publie un
+    /// taux réglementaire/douanier classique ; une autre devise (ex: "USD") publie un taux commercial
+    /// cross-rate (ex: EUR coté en USD) utilisé uniquement pour la conversion commerciale, jamais pour le
+    /// calcul douanier.
+    /// </summary>
+    public string NewQuoteCurrencyCode { get => _newQuoteCurrencyCode; set => SetField(ref _newQuoteCurrencyCode, value); }
     public decimal NewRateToDzd { get => _newRateToDzd; set => SetField(ref _newRateToDzd, value); }
+    /// <summary>Quotité : nombre d'unités de NewCurrencyCode auxquelles correspond NewRateToDzd (1 par défaut).</summary>
+    public int NewQuotityUnit { get => _newQuotityUnit; set => SetField(ref _newQuotityUnit, value); }
     public DateTime NewValidFrom { get => _newValidFrom; set => SetField(ref _newValidFrom, value); }
     public string NewSourceName { get => _newSourceName; set => SetField(ref _newSourceName, value); }
     public string NewRateType { get => _newRateType; set => SetField(ref _newRateType, value); }
@@ -63,28 +74,34 @@ public sealed class TauxDeChangeViewModel : ObservableObject
         {
             _session.RequireAdministrator("publier un nouveau taux de change officiel");
 
-            if (string.IsNullOrWhiteSpace(NewCurrencyCode) || NewRateToDzd <= 0)
+            if (string.IsNullOrWhiteSpace(NewCurrencyCode) || NewRateToDzd <= 0 || NewQuotityUnit <= 0)
             {
-                MessageBox.Show("La devise et un taux strictement positif sont obligatoires.", "CIMP", MessageBoxButton.OK, MessageBoxImage.Warning);
+                MessageBox.Show("La devise, la devise de cotation, un taux strictement positif et une quotité strictement positive sont obligatoires.", "CIMP", MessageBoxButton.OK, MessageBoxImage.Warning);
                 return;
             }
+
+            string quoteCurrency = string.IsNullOrWhiteSpace(NewQuoteCurrencyCode) ? "DZD" : NewQuoteCurrencyCode.Trim().ToUpperInvariant();
 
             var newRate = new ExchangeRateRecord
             {
                 CurrencyCode = NewCurrencyCode.Trim().ToUpperInvariant(),
+                QuoteCurrencyCode = quoteCurrency,
                 RateToDzd = NewRateToDzd,
+                QuotityUnit = NewQuotityUnit,
                 ValidFrom = DateOnly.FromDateTime(NewValidFrom),
                 RateType = NewRateType.Trim(),
                 SourceName = NewSourceName.Trim()
             };
 
-            var previous = Rates.FirstOrDefault(r => r.CurrencyCode == newRate.CurrencyCode && r.ValidTo == null);
+            // Section 6 du plan multi-devises : ne retrouver l'ancien taux ouvert QUE pour la même paire de
+            // devises (CurrencyCode + QuoteCurrencyCode), jamais une autre paire.
+            var previous = Rates.FirstOrDefault(r => r.CurrencyCode == newRate.CurrencyCode && r.QuoteCurrencyCode == newRate.QuoteCurrencyCode && r.ValidTo == null);
             _repository.PublishNewRate(newRate, _session.CurrentUser!.Id, _session.CurrentUser.Role);
 
             _audit.RecordAction(null, _session.CurrentUser.Id, _session.CurrentUser.DisplayName,
                 "EXCHANGE_RATE", "PUBLISH_NEW_RATE",
-                oldValue: previous == null ? null : $"1 {previous.CurrencyCode} = {previous.RateToDzd:F4} DZD",
-                newValue: $"1 {newRate.CurrencyCode} = {newRate.RateToDzd:F4} DZD à compter du {newRate.ValidFrom:dd/MM/yyyy}",
+                oldValue: previous == null ? null : $"{previous.QuotityUnit} {previous.CurrencyCode} = {previous.RateToDzd:F4} {previous.QuoteCurrencyCode}",
+                newValue: $"{newRate.QuotityUnit} {newRate.CurrencyCode} = {newRate.RateToDzd:F4} {newRate.QuoteCurrencyCode} à compter du {newRate.ValidFrom:dd/MM/yyyy}",
                 legalSourceReference: newRate.SourceName);
 
             Refresh();

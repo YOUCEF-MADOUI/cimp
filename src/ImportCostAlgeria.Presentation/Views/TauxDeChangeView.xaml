@@ -13,10 +13,12 @@
             <DataGrid ItemsSource="{Binding Rates}" IsReadOnly="True" AutoGenerateColumns="False">
                 <DataGrid.Columns>
                     <DataGridTextColumn Header="Devise" Binding="{Binding CurrencyCode}" Width="70" />
-                    <DataGridTextColumn Header="Taux -&gt; DZD" Binding="{Binding RateToDzd, StringFormat=N4}" Width="100" />
+                    <DataGridTextColumn Header="Cotée en" Binding="{Binding QuoteCurrencyCode}" Width="70" />
+                    <DataGridTextColumn Header="Quotité" Binding="{Binding QuotityUnit}" Width="60" />
+                    <DataGridTextColumn Header="Taux" Binding="{Binding RateToDzd, StringFormat=N4}" Width="100" />
                     <DataGridTextColumn Header="Valide du" Binding="{Binding ValidFrom, StringFormat=dd/MM/yyyy}" Width="90" />
                     <DataGridTextColumn Header="Valide au" Binding="{Binding ValidTo, StringFormat=dd/MM/yyyy}" Width="90" />
-                    <DataGridTextColumn Header="Type" Binding="{Binding RateType}" Width="160" />
+                    <DataGridTextColumn Header="Type" Binding="{Binding RateType}" Width="150" />
                     <DataGridTextColumn Header="Source" Binding="{Binding SourceName}" Width="*" />
                 </DataGrid.Columns>
             </DataGrid>
@@ -28,10 +30,16 @@
                 <TextBlock Text="⚠️ Réservé à l'Administrateur. Le taux actuellement en vigueur pour cette devise sera automatiquement clôturé à la veille de la nouvelle date d'effet."
                            TextWrapping="Wrap" Foreground="DarkOrange" Margin="0,0,0,12" />
 
-                <Label Content="Devise (ISO3)" />
+                <Label Content="Devise de base (ISO3, ex: EUR)" />
                 <TextBox Text="{Binding NewCurrencyCode, UpdateSourceTrigger=PropertyChanged}" MaxLength="3" />
 
-                <Label Content="Taux (1 devise = X DZD)" />
+                <Label Content="Devise de cotation (ISO3 - DZD pour un taux réglementaire, ou ex: USD pour un taux commercial EUR→USD)" TextElement.FontStyle="Italic" />
+                <TextBox Text="{Binding NewQuoteCurrencyCode, UpdateSourceTrigger=PropertyChanged}" MaxLength="3" />
+
+                <Label Content="Quotité (nombre d'unités de la devise de base pour ce taux, 1 par défaut)" />
+                <TextBox Text="{Binding NewQuotityUnit, UpdateSourceTrigger=PropertyChanged}" />
+
+                <Label Content="Taux (Quotité devise de base = X devise de cotation)" />
                 <TextBox Text="{Binding NewRateToDzd, UpdateSourceTrigger=PropertyChanged}" />
 
                 <Label Content="Date d'entrée en vigueur" />

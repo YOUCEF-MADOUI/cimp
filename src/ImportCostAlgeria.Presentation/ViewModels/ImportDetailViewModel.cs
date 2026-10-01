@@ -43,6 +43,8 @@ public sealed class ImportDetailViewModel : ObservableObject
     private decimal _totalTvaDzd;
     private decimal _totalFraisDzd;
     private string _exchangeRateInfo = string.Empty;
+    private string _authorizationExchangeRateInfo = string.Empty;
+    private string _authorizationConversionSummary = string.Empty;
     private string _incotermGuidance = string.Empty;
     private string _headerLabel = string.Empty;
     private StandardFeeTemplate? _selectedFeeTemplate;
@@ -101,6 +103,7 @@ public sealed class ImportDetailViewModel : ObservableObject
         HasBlockingAnomalies = false;
 
         RefreshExchangeRateInfo();
+        RefreshAuthorizationExchangeRateInfo();
         RefreshIncotermGuidance();
     }
 
@@ -127,6 +130,10 @@ public sealed class ImportDetailViewModel : ObservableObject
     public string ExchangeRateInfo { get => _exchangeRateInfo; private set => SetField(ref _exchangeRateInfo, value); }
     public string IncotermGuidance { get => _incotermGuidance; private set => SetField(ref _incotermGuidance, value); }
 
+    /// <summary>Section 11 du plan multi-devises : résumé affiché "Devise facture / Taux / Montant facture / Montant autorisation".</summary>
+    public string AuthorizationExchangeRateInfo { get => _authorizationExchangeRateInfo; private set => SetField(ref _authorizationExchangeRateInfo, value); }
+    public string AuthorizationConversionSummary { get => _authorizationConversionSummary; private set => SetField(ref _authorizationConversionSummary, value); }
+
     public bool IsManualRateMode
     {
         get => _operation?.ManualExchangeRateOverride.HasValue ?? false;
@@ -143,6 +150,42 @@ public sealed class ImportDetailViewModel : ObservableObject
     {
         get => _operation?.ManualExchangeRateOverride;
         set { _operation.ManualExchangeRateOverride = value; OnPropertyChanged(); }
+    }
+
+    /// <summary>
+    /// Section 13 du plan multi-devises : devise de l'autorisation d'importation (USD par défaut).
+    /// Strictement distincte de la devise réglementaire (toujours DZD pour le calcul douanier).
+    /// </summary>
+    public string AuthorizationCurrencyCode
+    {
+        get => _operation?.AuthorizationCurrencyCode ?? "USD";
+        set
+        {
+            if (_operation == null) return;
+            _operation.AuthorizationCurrencyCode = string.IsNullOrWhiteSpace(value) ? "USD" : value.Trim().ToUpperInvariant();
+            OnPropertyChanged();
+            RefreshAuthorizationExchangeRateInfo();
+        }
+    }
+
+    /// <summary>Taux commercial MANUEL (devise facture -> devise d'autorisation), distinct du taux réglementaire manuel.</summary>
+    public bool IsManualAuthorizationRateMode
+    {
+        get => _operation?.ManualAuthorizationExchangeRateOverride.HasValue ?? false;
+        set
+        {
+            if (!value) _operation.ManualAuthorizationExchangeRateOverride = null;
+            else _operation.ManualAuthorizationExchangeRateOverride ??= 0m;
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(ManualAuthorizationRateValue));
+            RefreshAuthorizationExchangeRateInfo();
+        }
+    }
+
+    public decimal? ManualAuthorizationRateValue
+    {
+        get => _operation?.ManualAuthorizationExchangeRateOverride;
+        set { _operation.ManualAuthorizationExchangeRateOverride = value; OnPropertyChanged(); RefreshAuthorizationExchangeRateInfo(); }
     }
 
     public RelayCommand BackCommand { get; }
@@ -170,6 +213,36 @@ public sealed class ImportDetailViewModel : ObservableObject
         ExchangeRateInfo = official == null
             ? $"INFORMATION NON DÉTERMINÉE : aucun taux officiel enregistré pour {_operation.MainCurrencyCode} au {_operation.ReferenceDate:dd/MM/yyyy}."
             : $"Taux officiel enregistré : 1 {_operation.MainCurrencyCode} = {official.RateToDzd:F4} DZD ({official.SourceName}, valide depuis le {official.ValidFrom:dd/MM/yyyy}).";
+    }
+
+    /// <summary>
+    /// Section 11 du plan multi-devises : affiche clairement la devise de la facture, le taux commercial
+    /// (officiel ou manuel) vers la devise de l'autorisation d'importation, et le montant équivalent.
+    /// Jamais mélangé avec <see cref="RefreshExchangeRateInfo"/> (conversion réglementaire vers DZD).
+    /// </summary>
+    private void RefreshAuthorizationExchangeRateInfo()
+    {
+        if (_operation == null) return;
+
+        if (string.Equals(_operation.AuthorizationCurrencyCode, _operation.MainCurrencyCode, StringComparison.OrdinalIgnoreCase))
+        {
+            AuthorizationExchangeRateInfo = $"Devise de l'autorisation = devise de la facture ({_operation.MainCurrencyCode}) : aucune conversion commerciale nécessaire.";
+            return;
+        }
+
+        if (_operation.ManualAuthorizationExchangeRateOverride.HasValue && _operation.ManualAuthorizationExchangeRateOverride.Value > 0m)
+        {
+            AuthorizationExchangeRateInfo = $"⚠️ TAUX MANUEL : 1 {_operation.MainCurrencyCode} = {_operation.ManualAuthorizationExchangeRateOverride.Value:F4} {_operation.AuthorizationCurrencyCode} (saisi par l'utilisateur).";
+            return;
+        }
+
+        var conversionService = _engineFactory.CreateCommercialConversionService();
+        var (rate, official, _) = conversionService.ResolveCrossRate(
+            _operation.MainCurrencyCode, _operation.AuthorizationCurrencyCode, _operation.ReferenceDate, null);
+
+        AuthorizationExchangeRateInfo = official == null
+            ? $"INFORMATION NON DÉTERMINÉE : aucun taux commercial officiel enregistré pour {_operation.MainCurrencyCode} → {_operation.AuthorizationCurrencyCode} au {_operation.ReferenceDate:dd/MM/yyyy}. Publiez-le dans l'écran \"Taux de change\" ou saisissez un taux manuel."
+            : $"Taux commercial officiel : 1 {_operation.MainCurrencyCode} = {rate:F4} {_operation.AuthorizationCurrencyCode} ({official.SourceName}, valide depuis le {official.ValidFrom:dd/MM/yyyy}).";
     }
 
     private void RefreshIncotermGuidance()
@@ -337,6 +410,12 @@ public sealed class ImportDetailViewModel : ObservableObject
                 importOperationId: _operation.Id);
 
             RefreshExchangeRateInfo();
+            RefreshAuthorizationExchangeRateInfo();
+
+            var commercialConversion = summary.CommercialAuthorizationConversion;
+            AuthorizationConversionSummary = commercialConversion == null
+                ? string.Empty
+                : $"Montant facture : {commercialConversion.OriginalTotalAmount:N2} {commercialConversion.OriginalCurrencyCode}  →  Montant autorisation : {commercialConversion.AuthorizationTotalAmount:N2} {commercialConversion.AuthorizationCurrencyCode} (taux {commercialConversion.EffectiveRate:F4}, {commercialConversion.RateTypeLabelFr})";
 
             MessageBox.Show(
                 summary.HasBlockingAnomalies
