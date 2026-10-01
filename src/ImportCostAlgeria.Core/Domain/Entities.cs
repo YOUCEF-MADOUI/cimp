@@ -262,6 +262,14 @@ public sealed class AppUser
     public required string PasswordSalt { get; set; }
     public required UserRole Role { get; set; }
     public bool IsActive { get; set; } = true;
+    /// <summary>
+    /// Section 18 (sécurité) : vrai pour le compte Administrateur initial créé automatiquement au premier
+    /// démarrage avec un mot de passe aléatoire à usage unique — force un changement de mot de passe
+    /// obligatoire à la prochaine connexion avant d'accéder à l'application (voir
+    /// ImportCostAlgeria.Presentation.Views.ChangePasswordWindow). Remis à faux dès que l'utilisateur a
+    /// changé son mot de passe (voir UserRepository.ChangePassword).
+    /// </summary>
+    public bool MustChangePasswordOnNextLogin { get; set; }
     public DateTime CreatedAtUtc { get; init; } = DateTime.UtcNow;
 }
 

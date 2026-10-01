@@ -14,6 +14,10 @@
             <CheckBox Content="TVA d'importation non récupérable (incluse au coût de revient — par défaut)"
                       IsChecked="{Binding IsImportVatNonRecoverable}" />
             <Button Content="Enregistrer" Command="{Binding SaveCompanySettingsCommand}" HorizontalAlignment="Left" Margin="4,16,4,4" />
+
+            <Separator Margin="0,20,0,12" />
+            <TextBlock Text="Sécurité du compte" FontSize="16" FontWeight="Bold" Margin="0,0,0,8" />
+            <Button Content="Changer mon mot de passe" Command="{Binding ChangeMyPasswordCommand}" HorizontalAlignment="Left" />
         </StackPanel>
 
         <DockPanel Grid.Column="1">

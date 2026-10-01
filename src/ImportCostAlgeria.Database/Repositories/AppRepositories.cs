@@ -195,6 +195,27 @@ public sealed class UserRepository
         if (user == null || !user.IsActive) return null;
         return PasswordHasher.Verify(plainTextPassword, user.PasswordHash, user.PasswordSalt) ? user : null;
     }
+
+    /// <summary>
+    /// Section 18 (sécurité) : changement de mot de passe explicite par l'utilisateur lui-même (notamment
+    /// obligatoire pour le compte Administrateur initial, voir <see cref="AppUser.MustChangePasswordOnNextLogin"/>).
+    /// Le nouveau mot de passe n'est jamais journalisé (aucun appel d'audit ne transporte sa valeur).
+    /// </summary>
+    public void ChangePassword(Guid userId, string newPlainTextPassword)
+    {
+        if (string.IsNullOrWhiteSpace(newPlainTextPassword) || newPlainTextPassword.Length < 8)
+            throw new InvalidOperationException("Le nouveau mot de passe doit contenir au moins 8 caractères.");
+
+        using var ctx = _factory.CreateGlobal();
+        var user = ctx.Users.FirstOrDefault(u => u.Id == userId)
+            ?? throw new InvalidOperationException("Utilisateur introuvable.");
+
+        var (hash, salt) = PasswordHasher.HashNewPassword(newPlainTextPassword);
+        user.PasswordHash = hash;
+        user.PasswordSalt = salt;
+        user.MustChangePasswordOnNextLogin = false;
+        ctx.SaveChanges();
+    }
 }
 
 /// <summary>
@@ -273,9 +294,14 @@ public sealed class ExchangeRateAdminRepository
 
         using var ctx = _factory.CreateGlobal();
         string ccy = newRate.CurrencyCode.Trim().ToUpperInvariant();
+        // Section 6 du plan multi-devises : une même devise de base (ex: EUR) peut avoir plusieurs
+        // historiques indépendants selon la devise de cotation (EUR->DZD réglementaire, EUR->USD
+        // commercial). Clôturer uniquement la période ouverte de LA MÊME paire de devises, jamais une
+        // autre paire — sinon publier un nouveau taux EUR->USD clôturerait par erreur un taux EUR->DZD.
+        string quoteCcy = string.IsNullOrWhiteSpace(newRate.QuoteCurrencyCode) ? "DZD" : newRate.QuoteCurrencyCode.Trim().ToUpperInvariant();
 
         var currentOpenEnded = ctx.ExchangeRates
-            .Where(r => r.CurrencyCode == ccy && r.ValidTo == null)
+            .Where(r => r.CurrencyCode == ccy && r.QuoteCurrencyCode == quoteCcy && r.ValidTo == null)
             .OrderByDescending(r => r.ValidFrom)
             .FirstOrDefault();
 

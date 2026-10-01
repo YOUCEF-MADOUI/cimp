@@ -6,6 +6,7 @@ using ImportCostAlgeria.Core.Domain;
 using ImportCostAlgeria.Database.Repositories;
 using ImportCostAlgeria.Presentation.Infrastructure;
 using ImportCostAlgeria.Presentation.Services;
+using ImportCostAlgeria.Presentation.Views;
 
 namespace ImportCostAlgeria.Presentation.ViewModels;
 
@@ -39,6 +40,7 @@ public sealed class ParametresViewModel : ObservableObject
         SaveCompanySettingsCommand = new RelayCommand(SaveCompanySettings, () => _company != null);
         CreateUserCommand = new RelayCommand(CreateUser);
         RefreshUsersCommand = new RelayCommand(RefreshUsers);
+        ChangeMyPasswordCommand = new RelayCommand(ChangeMyPassword);
 
         RefreshUsers();
     }
@@ -67,6 +69,7 @@ public sealed class ParametresViewModel : ObservableObject
     public RelayCommand SaveCompanySettingsCommand { get; }
     public RelayCommand CreateUserCommand { get; }
     public RelayCommand RefreshUsersCommand { get; }
+    public RelayCommand ChangeMyPasswordCommand { get; }
 
     public void LoadForCompany(Company company)
     {
@@ -100,6 +103,25 @@ public sealed class ParametresViewModel : ObservableObject
         Users.Clear();
         foreach (var u in _userRepository.GetAll())
             Users.Add(u);
+    }
+
+    /// <summary>
+    /// Section 18 (sécurité) : tout utilisateur peut changer volontairement son propre mot de passe à
+    /// tout moment, pas uniquement lors du changement obligatoire du mot de passe initial.
+    /// </summary>
+    private void ChangeMyPassword()
+    {
+        if (_session.CurrentUser == null) return;
+
+        var vm = new ChangePasswordViewModel(_userRepository, _session.CurrentUser);
+        var window = new ChangePasswordWindow { DataContext = vm, Owner = Application.Current.MainWindow };
+
+        if (window.ShowDialog() == true)
+        {
+            _audit.RecordAction(null, _session.CurrentUser.Id, _session.CurrentUser.DisplayName,
+                "USER_MANAGEMENT", "CHANGE_OWN_PASSWORD");
+            MessageBox.Show("Mot de passe modifié avec succès.", "CIMP", MessageBoxButton.OK, MessageBoxImage.Information);
+        }
     }
 
     private void CreateUser()

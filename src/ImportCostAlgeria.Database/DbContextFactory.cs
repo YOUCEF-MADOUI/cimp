@@ -1,4 +1,6 @@
 using System;
+using System.Data;
+using System.Data.Common;
 using System.IO;
 using System.Linq;
 using Microsoft.EntityFrameworkCore;
@@ -73,6 +75,11 @@ public static class DbContextFactory
     {
         bool created = context.Database.EnsureCreated();
 
+        // Section 19 de l'audit : voir ApplyLightweightSchemaUpgrades ci-dessous — ajoute sans risque les
+        // colonnes introduites par cette version (multi-devises, sécurité mot de passe) à une base SQLite
+        // déjà existante, sans jamais toucher aux données déjà présentes.
+        ApplyLightweightSchemaUpgrades(context);
+
         string? initialUsername = null;
         string? initialPassword = null;
 
@@ -83,7 +90,11 @@ public static class DbContextFactory
             // premier lancement). Le mot de passe généré est affiché une seule fois à l'écran de
             // connexion et doit être changé par l'utilisateur.
             initialUsername = "admin";
-            initialPassword = GenerateInitialPassword();
+            // Section 18 de l'audit : plus aucun mot de passe fixe codé en dur. Généré aléatoirement via
+            // RandomNumberGenerator (voir PasswordHasher.GenerateRandomPassword), affiché UNE SEULE fois à
+            // l'écran "Premier démarrage" (jamais journalisé), et son utilisation force un changement de
+            // mot de passe obligatoire à la prochaine connexion (MustChangePasswordOnNextLogin).
+            initialPassword = PasswordHasher.GenerateRandomPassword();
             var (hash, salt) = PasswordHasher.HashNewPassword(initialPassword);
 
             context.Users.Add(new AppUser
@@ -93,7 +104,8 @@ public static class DbContextFactory
                 PasswordHash = hash,
                 PasswordSalt = salt,
                 Role = UserRole.Administrateur,
-                IsActive = true
+                IsActive = true,
+                MustChangePasswordOnNextLogin = true
             });
 
             context.SaveChanges();
@@ -102,10 +114,66 @@ public static class DbContextFactory
         return (created, initialUsername, initialPassword);
     }
 
-    private static string GenerateInitialPassword()
+    /// <summary>
+    /// Palliatif léger et NON destructif à l'absence de véritables migrations EF Core (Section 19 de
+    /// l'audit) : <see cref="DbContext.Database"/>.<c>EnsureCreated()</c> ne modifie jamais le schéma d'une
+    /// base déjà existante, donc une colonne ajoutée à une entité par une nouvelle version de
+    /// l'application (ex: <c>ExchangeRateRecord.QuoteCurrencyCode</c>, <c>ImportOperation.AuthorizationCurrencyCode</c>,
+    /// <c>AppUser.MustChangePasswordOnNextLogin</c>) resterait invisible pour une base SQLite créée avec une
+    /// version antérieure du modèle, provoquant une erreur SQL au premier accès.
+    /// Cette méthode ajoute UNIQUEMENT les colonnes manquantes (ALTER TABLE ... ADD COLUMN), sans jamais
+    /// modifier ou supprimer une colonne/table/ligne existante : aucune donnée déjà saisie n'est perdue.
+    /// Ce n'est délibérément PAS un remplacement des migrations EF Core standard : dès que le SDK .NET est
+    /// disponible sur le poste de développement, la démarche recommandée (documentée dans le README) est
+    /// d'exécuter "dotnet ef migrations add" pour obtenir un historique de migrations versionné classique —
+    /// ce palliatif reste nécessaire uniquement pour ne jamais casser une base déjà déployée en attendant.
+    /// Ne s'applique qu'au fournisseur SQLite (fournisseur par défaut de l'application).
+    /// </summary>
+    public static void ApplyLightweightSchemaUpgrades(ImportCostDbContext context)
     {
-        // Mot de passe initial simple et mémorisable pour le tout premier démarrage local (poste de
-        // développement / démonstration) ; l'écran "Utilisateurs" permet de le changer immédiatement.
-        return "Cimp@2026!";
+        if (!context.Database.IsSqlite())
+            return;
+
+        DbConnection connection = context.Database.GetDbConnection();
+        bool wasClosed = connection.State != ConnectionState.Open;
+        if (wasClosed) connection.Open();
+
+        try
+        {
+            AddColumnIfMissing(connection, "ExchangeRates", "QuoteCurrencyCode", "TEXT NOT NULL DEFAULT 'DZD'");
+            AddColumnIfMissing(connection, "ImportOperations", "AuthorizationCurrencyCode", "TEXT NOT NULL DEFAULT 'USD'");
+            AddColumnIfMissing(connection, "ImportOperations", "ManualAuthorizationExchangeRateOverride", "TEXT NULL");
+            AddColumnIfMissing(connection, "Users", "MustChangePasswordOnNextLogin", "INTEGER NOT NULL DEFAULT 0");
+        }
+        finally
+        {
+            if (wasClosed) connection.Close();
+        }
+    }
+
+    private static bool ColumnExists(DbConnection connection, string table, string column)
+    {
+        using var cmd = connection.CreateCommand();
+        cmd.CommandText = $"PRAGMA table_info('{table}')";
+        using var reader = cmd.ExecuteReader();
+        while (reader.Read())
+        {
+            // PRAGMA table_info renvoie les colonnes (cid, name, type, notnull, dflt_value, pk) :
+            // 'name' est à l'index 1.
+            string existingColumnName = reader.GetString(1);
+            if (string.Equals(existingColumnName, column, StringComparison.OrdinalIgnoreCase))
+                return true;
+        }
+        return false;
+    }
+
+    private static void AddColumnIfMissing(DbConnection connection, string table, string column, string columnDefinitionSql)
+    {
+        if (ColumnExists(connection, table, column))
+            return;
+
+        using var cmd = connection.CreateCommand();
+        cmd.CommandText = $"ALTER TABLE \"{table}\" ADD COLUMN \"{column}\" {columnDefinitionSql}";
+        cmd.ExecuteNonQuery();
     }
 }

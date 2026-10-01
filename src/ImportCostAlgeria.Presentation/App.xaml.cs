@@ -47,6 +47,21 @@ public partial class App : Application
         var session = Services.GetRequiredService<SessionContext>();
         session.CurrentUser = loginViewModel.AuthenticatedUser;
 
+        // Section 18 (sécurité) : changement de mot de passe obligatoire tant que l'utilisateur utilise
+        // encore le mot de passe initial généré aléatoirement (voir DbContextFactory.EnsureDatabaseReadyWithSeed).
+        if (session.CurrentUser.MustChangePasswordOnNextLogin)
+        {
+            var userRepository = Services.GetRequiredService<UserRepository>();
+            var changePasswordViewModel = new ChangePasswordViewModel(userRepository, session.CurrentUser);
+            var changePasswordWindow = new ChangePasswordWindow { DataContext = changePasswordViewModel };
+
+            if (changePasswordWindow.ShowDialog() != true)
+            {
+                Shutdown();
+                return;
+            }
+        }
+
         var mainWindow = Services.GetRequiredService<MainWindow>();
         MainWindow = mainWindow;
         mainWindow.Show();
@@ -65,7 +80,8 @@ public partial class App : Application
                 $"Compte administrateur initial créé :\n" +
                 $"  Utilisateur : {initialUser}\n" +
                 $"  Mot de passe : {initialPassword}\n\n" +
-                $"Merci de le modifier dès que possible depuis l'écran \"Utilisateurs\".",
+                $"Ce mot de passe est généré aléatoirement et à usage unique : vous devrez le changer " +
+                $"immédiatement après cette fenêtre, avant de pouvoir accéder à l'application.",
                 "CIMP — Premier démarrage",
                 MessageBoxButton.OK,
                 MessageBoxImage.Information);
