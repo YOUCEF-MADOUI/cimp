@@ -732,6 +732,59 @@ public sealed class MultiCurrencyAndSecurityTests
         }
     }
 
+    // ------------------------------------------------------------------
+    // Revue du 2026-10-01 (bug "fermeture silencieuse après connexion") : couvre, au niveau données
+    // (sans dépendre de WPF, que ce projet de tests ne référence pas), exactement l'état lu par
+    // App.xaml.cs pour décider d'afficher ChangePasswordWindow puis MainWindow : premier démarrage
+    // -> MustChangePasswordOnNextLogin = true, puis après changement de mot de passe -> false aux
+    // connexions suivantes. Le bug lui-même (cycle de vie des fenêtres WPF / ShutdownMode) n'est pas
+    // testable par un test unitaire xUnit sans interface graphique ; il est corrigé dans App.xaml.cs.
+    // ------------------------------------------------------------------
+
+    [Fact]
+    public void FirstStartupAuthenticationFlow_ShouldRequirePasswordChange_ThenNoLongerRequireItAfterwards()
+    {
+        using var factory = new SingleFileDbContextFactory();
+        using (var ctx = factory.CreateGlobal())
+        {
+            ctx.Database.EnsureCreated();
+        }
+
+        // 1) Premier démarrage : création du compte admin initial avec mot de passe aléatoire à usage unique.
+        string? initialUsername;
+        string? initialPassword;
+        using (var ctx = factory.CreateGlobal())
+        {
+            (_, initialUsername, initialPassword) = DbContextFactory.EnsureDatabaseReadyWithSeed(ctx);
+        }
+
+        Assert.Equal("admin", initialUsername);
+        Assert.NotNull(initialPassword);
+
+        var userRepository = new UserRepository(factory);
+
+        // 2) Authentification avec le mot de passe initial : doit réussir, et MustChangePasswordOnNextLogin
+        //    doit être vrai (c'est exactement cette valeur que App.OnStartup lit pour décider d'afficher
+        //    ChangePasswordWindow avant MainWindow).
+        var authenticatedUser = userRepository.TryAuthenticate(initialUsername!, initialPassword!);
+        Assert.NotNull(authenticatedUser);
+        Assert.True(authenticatedUser!.MustChangePasswordOnNextLogin);
+
+        // 3) Changement de mot de passe obligatoire (ChangePasswordViewModel.TryChangePassword appelle ceci).
+        userRepository.ChangePassword(authenticatedUser.Id, "NouveauMotDePasse#2026");
+
+        // 4) Reconnexion avec le NOUVEAU mot de passe : doit réussir, et MustChangePasswordOnNextLogin doit
+        //    désormais être faux (démarrages suivants : Login -> MainWindow directement, sans
+        //    ChangePasswordWindow).
+        var reAuthenticatedUser = userRepository.TryAuthenticate(initialUsername!, "NouveauMotDePasse#2026");
+        Assert.NotNull(reAuthenticatedUser);
+        Assert.False(reAuthenticatedUser!.MustChangePasswordOnNextLogin);
+
+        // 5) L'ancien mot de passe initial ne doit plus jamais fonctionner après le changement.
+        var reAuthWithOldPassword = userRepository.TryAuthenticate(initialUsername!, initialPassword!);
+        Assert.Null(reAuthWithOldPassword);
+    }
+
     [Fact]
     public void PublishNewRate_ForDifferentQuoteCurrency_ShouldNotCloseUnrelatedCurrencyPairHistory()
     {
