@@ -10,6 +10,7 @@
             <conv:SeverityToBrushConverter x:Key="SeverityToBrushConverter" />
             <conv:CountToVisibilityConverter x:Key="CountToVisibilityConverter" />
             <conv:DateOnlyConverter x:Key="DateOnlyConverter" />
+            <conv:FlexibleDecimalConverter x:Key="FlexibleDecimalConverter" />
 
             <Style TargetType="Button">
                 <Setter Property="Padding" Value="10,5" />

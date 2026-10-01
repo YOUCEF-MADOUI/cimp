@@ -15,9 +15,9 @@
                     <ColumnDefinition Width="*" />
                 </Grid.ColumnDefinitions>
                 <StackPanel Grid.Column="0">
-                    <TextBlock><Run Text="Valeur en douane : " FontWeight="Bold" /><Run Text="{Binding Result.CustomsOutcome.CustomsValueDzd, StringFormat={}{0:N2} DZD}" /></TextBlock>
-                    <TextBlock><Run Text="Taux de droit de douane appliqué : " FontWeight="Bold" /><Run Text="{Binding Result.CustomsOutcome.CustomsDutyRatePercent, StringFormat={}{0:N2} %}" /></TextBlock>
-                    <TextBlock><Run Text="Montant du droit de douane : " FontWeight="Bold" /><Run Text="{Binding Result.CustomsOutcome.CustomsDutyAmountDzd, StringFormat={}{0:N2} DZD}" /></TextBlock>
+                    <TextBlock><Run Text="Valeur en douane : " FontWeight="Bold" /><Run Text="{Binding Result.CustomsOutcome.CustomsValueDzd, Mode=OneWay, StringFormat={}{0:N2} DZD}" /></TextBlock>
+                    <TextBlock><Run Text="Taux de droit de douane appliqué : " FontWeight="Bold" /><Run Text="{Binding Result.CustomsOutcome.CustomsDutyRatePercent, Mode=OneWay, StringFormat={}{0:N2} %}" /></TextBlock>
+                    <TextBlock><Run Text="Montant du droit de douane : " FontWeight="Bold" /><Run Text="{Binding Result.CustomsOutcome.CustomsDutyAmountDzd, Mode=OneWay, StringFormat={}{0:N2} DZD}" /></TextBlock>
                 </StackPanel>
                 <StackPanel Grid.Column="1">
                     <TextBlock Text="{Binding ComparaisonDroitExcelVsReglementaire}" TextWrapping="Wrap" Foreground="DarkBlue" />
@@ -39,9 +39,9 @@
             </DataGrid>
             <TextBlock Margin="0,8,0,0">
                 <Run Text="TVA à l'importation : " FontWeight="Bold" />
-                <Run Text="{Binding Result.CustomsOutcome.VatRatePercent, StringFormat={}{0:N2} %}" />
+                <Run Text="{Binding Result.CustomsOutcome.VatRatePercent, Mode=OneWay, StringFormat={}{0:N2} %}" />
                 <Run Text=" — " />
-                <Run Text="{Binding Result.CustomsOutcome.ImportVatAmountDzd, StringFormat={}{0:N2} DZD}" />
+                <Run Text="{Binding Result.CustomsOutcome.ImportVatAmountDzd, Mode=OneWay, StringFormat={}{0:N2} DZD}" />
             </TextBlock>
 
             <TextBlock Text="3. Frais alloués à cet article" FontSize="14" FontWeight="Bold" Margin="0,16,0,4" />
@@ -57,10 +57,10 @@
             </DataGrid>
 
             <TextBlock Text="4. Coût de revient économique réel (distinct de la valeur en douane)" FontSize="14" FontWeight="Bold" Margin="0,16,0,4" />
-            <TextBlock><Run Text="Coût d'acquisition HT : " FontWeight="Bold" /><Run Text="{Binding Result.EconomicOutcome.AcquisitionCostExVatDzd, StringFormat={}{0:N2} DZD}" /></TextBlock>
-            <TextBlock><Run Text="TVA / taxes non récupérables incluses : " FontWeight="Bold" /><Run Text="{Binding Result.EconomicOutcome.NonRecoverableImportVatDzd, StringFormat={}{0:N2} DZD}" /></TextBlock>
-            <TextBlock FontSize="16" Margin="0,8,0,0"><Run Text="Coût de revient total : " FontWeight="Bold" /><Run Text="{Binding Result.EconomicOutcome.RealCostOfGoodsTotalDzd, StringFormat={}{0:N2} DZD}" FontWeight="Bold" /></TextBlock>
-            <TextBlock FontSize="16"><Run Text="Coût unitaire de revient : " FontWeight="Bold" /><Run Text="{Binding Result.EconomicOutcome.UnitCostOfGoodsDzd, StringFormat={}{0:N2} DZD}" FontWeight="Bold" /></TextBlock>
+            <TextBlock><Run Text="Coût d'acquisition HT : " FontWeight="Bold" /><Run Text="{Binding Result.EconomicOutcome.AcquisitionCostExVatDzd, Mode=OneWay, StringFormat={}{0:N2} DZD}" /></TextBlock>
+            <TextBlock><Run Text="TVA / taxes non récupérables incluses : " FontWeight="Bold" /><Run Text="{Binding Result.EconomicOutcome.NonRecoverableImportVatDzd, Mode=OneWay, StringFormat={}{0:N2} DZD}" /></TextBlock>
+            <TextBlock FontSize="16" Margin="0,8,0,0"><Run Text="Coût de revient total : " FontWeight="Bold" /><Run Text="{Binding Result.EconomicOutcome.RealCostOfGoodsTotalDzd, Mode=OneWay, StringFormat={}{0:N2} DZD}" FontWeight="Bold" /></TextBlock>
+            <TextBlock FontSize="16"><Run Text="Coût unitaire de revient : " FontWeight="Bold" /><Run Text="{Binding Result.EconomicOutcome.UnitCostOfGoodsDzd, Mode=OneWay, StringFormat={}{0:N2} DZD}" FontWeight="Bold" /></TextBlock>
 
             <TextBlock Text="5. Contrôles / anomalies concernant cet article" FontSize="14" FontWeight="Bold" Margin="0,16,0,4" />
             <ItemsControl ItemsSource="{Binding Anomalies}">

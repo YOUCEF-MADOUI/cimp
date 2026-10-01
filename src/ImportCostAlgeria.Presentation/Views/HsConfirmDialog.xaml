@@ -24,7 +24,7 @@
 
         <TextBlock Margin="0,0,0,8">
             <Run Text="Confiance IA : " FontWeight="Bold" />
-            <Run Text="{Binding Proposal.ConfidencePercent, StringFormat={}{0:N1} %}" />
+            <Run Text="{Binding Proposal.ConfidencePercent, Mode=OneWay, StringFormat={}{0:N1} %}" />
         </TextBlock>
 
         <Label Content="Code SH modifié (uniquement si vous choisissez [MODIFIER])" />

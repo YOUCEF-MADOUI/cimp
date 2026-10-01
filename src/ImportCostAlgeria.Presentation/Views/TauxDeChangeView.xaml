@@ -40,7 +40,7 @@
                 <TextBox Text="{Binding NewQuotityUnit, UpdateSourceTrigger=PropertyChanged}" />
 
                 <Label Content="Taux (Quotité devise de base = X devise de cotation)" />
-                <TextBox Text="{Binding NewRateToDzd, UpdateSourceTrigger=PropertyChanged}" />
+                <TextBox Text="{Binding NewRateToDzd, UpdateSourceTrigger=PropertyChanged, Converter={StaticResource FlexibleDecimalConverter}}" />
 
                 <Label Content="Date d'entrée en vigueur" />
                 <DatePicker SelectedDate="{Binding NewValidFrom}" />

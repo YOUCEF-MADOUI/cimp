@@ -1,0 +1,35 @@
+<UserControl x:Class="ImportCostAlgeria.Presentation.Controls.CountrySearchBox"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             Focusable="False">
+    <!--
+        Revue du 2026-10-01 (point 2 — Pays d'origine / Pays d'expédition) : contrôle réutilisable de
+        recherche dynamique de pays. Remplace les anciens TextBox limités à 2 caractères (MaxLength="2").
+
+        Fonctionnement : zone de texte libre (aucune limite de longueur) + liste déroulante filtrée en
+        temps réel sur TOUTE la désignation française ou le code ISO2 (pas uniquement un préfixe de
+        2 lettres) ; sélection possible au clavier (Haut/Bas + Entrée) ou à la souris (clic).
+        Le code ISO2 n'est qu'un identifiant technique une fois le pays choisi (voir SelectedIso2),
+        jamais une contrainte de saisie (voir ImportCostAlgeria.Core.Domain.CountryCatalog).
+    -->
+    <Grid>
+        <TextBox x:Name="PART_TextBox"
+                 TextChanged="OnTextBoxTextChanged"
+                 PreviewKeyDown="OnTextBoxPreviewKeyDown"
+                 GotFocus="OnTextBoxGotFocus"
+                 LostFocus="OnTextBoxLostFocus" />
+        <Popup x:Name="PART_Popup"
+               PlacementTarget="{Binding ElementName=PART_TextBox}"
+               Placement="Bottom"
+               StaysOpen="False"
+               AllowsTransparency="True"
+               Width="{Binding ElementName=PART_TextBox, Path=ActualWidth}">
+            <Border Background="White" BorderBrush="#888" BorderThickness="1" MaxHeight="220">
+                <ListBox x:Name="PART_ListBox"
+                         DisplayMemberPath="DisplayLabel"
+                         PreviewMouseLeftButtonUp="OnListBoxPreviewMouseLeftButtonUp"
+                         KeyDown="OnListBoxKeyDown" />
+            </Border>
+        </Popup>
+    </Grid>
+</UserControl>

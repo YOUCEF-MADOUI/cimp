@@ -16,11 +16,11 @@
         </Border>
 
         <UniformGrid DockPanel.Dock="Top" Columns="5" Margin="0,0,0,8">
-            <TextBlock><Run Text="Valeur en douane : " FontWeight="Bold"/><Run Text="{Binding TotalValeurDouaneDzd, StringFormat=N2}"/></TextBlock>
-            <TextBlock><Run Text="Droits de douane : " FontWeight="Bold"/><Run Text="{Binding TotalDroitsDouaneDzd, StringFormat=N2}"/></TextBlock>
-            <TextBlock><Run Text="TVA import : " FontWeight="Bold"/><Run Text="{Binding TotalTvaDzd, StringFormat=N2}"/></TextBlock>
-            <TextBlock><Run Text="Frais alloués : " FontWeight="Bold"/><Run Text="{Binding TotalFraisDzd, StringFormat=N2}"/></TextBlock>
-            <TextBlock><Run Text="Coût de revient total : " FontWeight="Bold"/><Run Text="{Binding TotalCoutRevientDzd, StringFormat=N2}" FontWeight="Bold"/></TextBlock>
+            <TextBlock><Run Text="Valeur en douane : " FontWeight="Bold"/><Run Text="{Binding TotalValeurDouaneDzd, Mode=OneWay, StringFormat=N2}"/></TextBlock>
+            <TextBlock><Run Text="Droits de douane : " FontWeight="Bold"/><Run Text="{Binding TotalDroitsDouaneDzd, Mode=OneWay, StringFormat=N2}"/></TextBlock>
+            <TextBlock><Run Text="TVA import : " FontWeight="Bold"/><Run Text="{Binding TotalTvaDzd, Mode=OneWay, StringFormat=N2}"/></TextBlock>
+            <TextBlock><Run Text="Frais alloués : " FontWeight="Bold"/><Run Text="{Binding TotalFraisDzd, Mode=OneWay, StringFormat=N2}"/></TextBlock>
+            <TextBlock><Run Text="Coût de revient total : " FontWeight="Bold"/><Run Text="{Binding TotalCoutRevientDzd, Mode=OneWay, StringFormat=N2}" FontWeight="Bold"/></TextBlock>
         </UniformGrid>
 
         <TabControl>
@@ -47,7 +47,7 @@
                                     </DataTemplate>
                                 </DataGridTemplateColumn.CellTemplate>
                             </DataGridTemplateColumn>
-                            <DataGridTextColumn Header="Droit Excel %" Binding="{Binding ExcelDutyRatePercent}" Width="85" />
+                            <DataGridTextColumn Header="Droit Excel %" Binding="{Binding ExcelDutyRatePercent, Converter={StaticResource FlexibleDecimalConverter}}" Width="85" />
                             <DataGridTextColumn Header="Poids (kg)" Binding="{Binding LineGrossWeightKg}" Width="75" />
                             <DataGridTextColumn Header="Volume (m³)" Binding="{Binding LineVolumeM3}" Width="80" />
                             <DataGridTextColumn Header="Valeur douane" Binding="{Binding ValeurDouaniereDzd, StringFormat=N2}" Width="95" IsReadOnly="True" />
@@ -113,7 +113,7 @@
                               IsChecked="{Binding IsManualRateMode}" />
                     <StackPanel Orientation="Horizontal" Margin="0,4,0,16" Visibility="{Binding IsManualRateMode, Converter={StaticResource BoolToVisibilityConverter}}">
                         <Label Content="Taux manuel (1 devise = X DZD) :" />
-                        <TextBox Text="{Binding ManualRateValue, UpdateSourceTrigger=PropertyChanged}" Width="120" />
+                        <TextBox Text="{Binding ManualRateValue, UpdateSourceTrigger=PropertyChanged, Converter={StaticResource FlexibleDecimalConverter}}" Width="120" />
                     </StackPanel>
 
                     <Separator Margin="0,4,0,12" />
@@ -129,7 +129,7 @@
                               IsChecked="{Binding IsManualAuthorizationRateMode}" />
                     <StackPanel Orientation="Horizontal" Margin="0,4,0,8" Visibility="{Binding IsManualAuthorizationRateMode, Converter={StaticResource BoolToVisibilityConverter}}">
                         <Label Content="Taux manuel (1 devise facture = X devise autorisation) :" />
-                        <TextBox Text="{Binding ManualAuthorizationRateValue, UpdateSourceTrigger=PropertyChanged}" Width="120" />
+                        <TextBox Text="{Binding ManualAuthorizationRateValue, UpdateSourceTrigger=PropertyChanged, Converter={StaticResource FlexibleDecimalConverter}}" Width="120" />
                     </StackPanel>
 
                     <TextBlock Text="{Binding AuthorizationConversionSummary}" FontWeight="Bold" TextWrapping="Wrap" Margin="0,0,0,16" />

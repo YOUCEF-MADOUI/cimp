@@ -74,3 +74,49 @@ public sealed class CountToVisibilityConverter : IValueConverter
     public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture) =>
         throw new NotSupportedException();
 }
+
+/// <summary>
+/// Revue du 2026-10-01 (point 3 — Saisie des taux de change) : convertit entre un TextBox (saisie libre)
+/// et une propriété <see cref="decimal"/> ou <see cref="decimal"/>? en acceptant INDIFFÉREMMENT la
+/// virgule (notation française, ex. "1,17" ou "152,1552") ou le point (notation anglo-saxonne, ex.
+/// "1.17" ou "152.1552") comme séparateur décimal — quelle que soit la culture régionale effective de
+/// la machine sur laquelle CIMP s'exécute (on ne dépend donc jamais, pour la saisie, de la culture
+/// courante du thread, qui peut varier d'un poste à l'autre). Utilisé pour :
+///   - le taux réglementaire (Réglementation -&gt; Taux %) ;
+///   - le taux commercial (Taux de change -&gt; Nouveau taux vers DZD) ;
+///   - le taux manuel (Importation -&gt; Taux de change manuel, Taux commercial manuel) ;
+///   - tout autre champ de taux/montant décimal concerné.
+/// Ne convertit JAMAIS la valeur en double/float : uniquement <see cref="decimal.TryParse(string, NumberStyles, IFormatProvider, out decimal)"/>,
+/// qui préserve une précision décimale exacte (indispensable pour des montants monétaires).
+/// </summary>
+public sealed class FlexibleDecimalConverter : IValueConverter
+{
+    public object? Convert(object? value, Type targetType, object parameter, CultureInfo culture)
+    {
+        return value switch
+        {
+            null => string.Empty,
+            decimal dec => dec.ToString("G29", CultureInfo.CurrentCulture),
+            _ => value.ToString() ?? string.Empty
+        };
+    }
+
+    public object? ConvertBack(object value, Type targetType, object parameter, CultureInfo culture)
+    {
+        string? text = value as string;
+        bool targetIsNullable = Nullable.GetUnderlyingType(targetType) != null;
+
+        if (string.IsNullOrWhiteSpace(text))
+            return targetIsNullable ? null : (object)DependencyProperty.UnsetValue;
+
+        // Logique d'analyse centralisée et testée indépendamment de WPF (voir
+        // ImportCostAlgeria.Core.Services.FlexibleDecimalParser + les tests unitaires associés).
+        if (ImportCostAlgeria.Core.Services.FlexibleDecimalParser.TryParse(text, out decimal result))
+            return result;
+
+        // Saisie non interprétable comme nombre (virgule ou point) : on ne doit JAMAIS inventer une
+        // valeur (ni 0, ni arrondi silencieux) — on rejette la mise à jour de la source (WPF affiche
+        // alors un retour de validation standard et conserve la dernière valeur valide côté modèle).
+        return DependencyProperty.UnsetValue;
+    }
+}
