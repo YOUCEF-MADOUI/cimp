@@ -55,7 +55,18 @@ public sealed record LineCustomsResult(
     decimal VatRatePercent,
     decimal ImportVatAmountDzd,
     decimal TotalDutiesAndTaxesDzd,
-    decimal CustomsValuePlusDutiesAndTaxesDzd);
+    decimal CustomsValuePlusDutiesAndTaxesDzd,
+    // Section 17 de l'audit : traçabilité de la source légale du droit de douane et de la TVA appliqués,
+    // issue de la règle réglementaire effectivement résolue (jamais une référence générique codée en dur).
+    // Null lorsque le taux appliqué n'a pas de règle réglementaire officielle correspondante (ex: taux
+    // Excel confirmé par l'utilisateur en l'absence de règle officielle) — dans ce cas, l'appelant doit
+    // afficher "INFORMATION NON DÉTERMINÉE" plutôt que d'inventer une citation.
+    string? CustomsDutyLegalArticleReference = null,
+    string? CustomsDutyJoraReference = null,
+    string? CustomsDutyRegulatoryVersionCode = null,
+    string? VatLegalArticleReference = null,
+    string? VatJoraReference = null,
+    string? VatRegulatoryVersionCode = null);
 
 /// <summary>
 /// Résultat 2 (Section 26) : Coût d'acquisition et Coût de revient économique réel.
@@ -83,7 +94,23 @@ public sealed record LineFullCalculationResult(
     decimal AppliedExchangeRateToDzd,
     LineCustomsResult CustomsOutcome,
     LineEconomicCostResult EconomicOutcome,
-    IReadOnlyList<FeeAllocationTrace> FeeAllocations);
+    IReadOnlyList<FeeAllocationTrace> FeeAllocations,
+    // Section 12 du plan multi-devises : conversion COMMERCIALE (jamais réglementaire) de cette ligne vers
+    // la devise d'autorisation d'importation (ex: EUR -> USD). Null lorsque la devise de la ligne est déjà
+    // la devise d'autorisation (aucune conversion à afficher, Section 15 : "ne pas afficher inutilement
+    // une conversion"). Ne participe JAMAIS à CustomsOutcome / EconomicOutcome (Section 14 & 22).
+    LineCommercialConversion? AuthorizationConversion = null);
+
+/// <summary>
+/// Conversion commerciale d'une ligne vers la devise d'autorisation d'importation (Section 12). Valeurs
+/// purement informatives/traçabilité, jamais réinjectées dans le calcul douanier.
+/// </summary>
+public sealed record LineCommercialConversion(
+    string AuthorizationCurrencyCode,
+    decimal AuthorizationUnitPrice,
+    decimal AuthorizationTotalAmount,
+    decimal EffectiveRate,
+    bool IsManualRate);
 
 public sealed record ImportCalculationSummary(
     Guid ImportOperationId,
@@ -104,7 +131,29 @@ public sealed record ImportCalculationSummary(
     IReadOnlyList<LineFullCalculationResult> LineResults, // Section 1.10 : Coût unitaire par article
     IReadOnlyList<CalculationAnomaly> Anomalies,
     bool HasBlockingAnomalies,
-    string MandatoryLegalDisclaimerFr);
+    string MandatoryLegalDisclaimerFr,
+    // Section 6, 11 & 13 du plan multi-devises : conversion COMMERCIALE globale de la facture (devise
+    // originale -> devise de l'autorisation d'importation, ex: EUR -> USD). Null lorsque la devise
+    // d'autorisation est identique à la devise de la facture (aucune conversion nécessaire). Strictement
+    // distincte de la conversion réglementaire vers DZD déjà portée par les champs ci-dessus — jamais
+    // mélangée avec eux (Section 14 & 22).
+    CommercialAuthorizationConversion? CommercialAuthorizationConversion = null);
+
+/// <summary>
+/// Conversion commerciale globale de la facture vers la devise de l'autorisation d'importation
+/// (Section 5, 6, 9 & 13 du plan multi-devises). Toujours accompagnée de la traçabilité du taux utilisé
+/// (officiel ou manuel, source, date) — jamais une simple valeur numérique opaque (Section 7).
+/// </summary>
+public sealed record CommercialAuthorizationConversion(
+    string OriginalCurrencyCode,
+    decimal OriginalTotalAmount,
+    string AuthorizationCurrencyCode,
+    decimal AuthorizationTotalAmount,
+    decimal EffectiveRate,
+    bool IsManualRate,
+    string? OfficialRateSourceName,
+    DateOnly? OfficialRateValidFrom,
+    string RateTypeLabelFr);
 
 // ============================================================================
 // 2. SOUS-MOTEURS SPÉCIALISÉS (SÉPARÉS DE TOUTE INTERFACE GRAPHIQUE)
@@ -112,12 +161,115 @@ public sealed record ImportCalculationSummary(
 
 public interface IExchangeRateProvider
 {
+    /// <summary>Taux réglementaire/douanier historique : <paramref name="currencyCode"/> -&gt; DZD.</summary>
     ExchangeRateRecord? GetRegulatoryRate(string currencyCode, DateOnly referenceDate);
+
+    /// <summary>
+    /// Taux historique entre deux devises quelconques (Section 6 du plan multi-devises), ex: EUR -&gt; USD.
+    /// Implémentation par défaut : déléguée à <see cref="GetRegulatoryRate"/> lorsque la devise de cotation
+    /// demandée est "DZD" (comportement strictement identique à avant l'ajout du multi-devises, donc sans
+    /// aucune régression pour le code existant) ; retourne null si aucun taux n'est trouvé pour une autre
+    /// devise de cotation et que l'implémentation ne la gère pas explicitement (voir
+    /// ImportCostAlgeria.Database.Repositories.EfExchangeRateProvider pour l'implémentation réelle sur base).
+    /// </summary>
+    ExchangeRateRecord? GetRate(string fromCurrencyCode, string toCurrencyCode, DateOnly referenceDate) =>
+        string.Equals(toCurrencyCode, "DZD", StringComparison.OrdinalIgnoreCase)
+            ? GetRegulatoryRate(fromCurrencyCode, referenceDate)
+            : null;
+}
+
+/// <summary>
+/// Normalisation et comparaison d'un taux de change officiel/manuel, centralisées (Section 8 du plan
+/// multi-devises : "ne duplique pas les formules de conversion dans plusieurs ViewModels/classes") afin
+/// que <see cref="CurrencyCalculator"/> (conversion réglementaire vers DZD) et
+/// <see cref="CurrencyConversionService"/> (conversion commerciale entre devises quelconques, ex: EUR -&gt;
+/// USD) appliquent exactement la même règle de normalisation par quotité et le même seuil d'alerte
+/// "⚠️ TAUX MANUEL", quelle que soit la devise de cotation cible.
+/// </summary>
+public static class ExchangeRateNormalization
+{
+    /// <summary>
+    /// Seuil d'écart relatif (Section 9) au-delà duquel un taux manuel saisi par l'utilisateur, différent
+    /// du taux officiel enregistré pour la même devise/période, déclenche un avertissement "⚠️ TAUX
+    /// MANUEL". Volontairement non nul (et non une égalité stricte) afin de ne jamais déclencher une
+    /// fausse alerte sur un simple écart d'arrondi négligeable entre deux représentations du même taux.
+    /// Valeur actuelle : 0,5 % d'écart relatif — seuil conservateur documenté, ajustable ici en un seul
+    /// endroit si l'application doit un jour exposer ce réglage à l'utilisateur.
+    /// </summary>
+    public const decimal ManualRateDifferenceWarningThresholdPercent = 0.5m;
+
+    /// <summary>
+    /// Ramène un taux officiel publié "pour <see cref="ExchangeRateRecord.QuotityUnit"/> unités" à un taux
+    /// "pour 1 unité", c'est-à-dire la même convention que celle utilisée par tous les taux saisis
+    /// manuellement dans l'application (Section 3 de l'audit : les deux chemins doivent représenter la
+    /// même unité économique).
+    /// </summary>
+    public static decimal ToUnitRate(ExchangeRateRecord official) =>
+        official.QuotityUnit == 0 ? 0m : official.RateToDzd / official.QuotityUnit;
+
+    /// <summary>
+    /// Résout le taux effectif à utiliser pour une conversion (devise source -&gt; devise cible quelconque),
+    /// en appliquant systématiquement la normalisation par quotité ci-dessus et en générant les anomalies
+    /// appropriées (taux manquant = BLOCAGE, taux manuel différent du taux officiel au-delà du seuil =
+    /// AVERTISSEMENT "⚠️ TAUX MANUEL").
+    /// </summary>
+    public static (decimal EffectiveRate, ExchangeRateRecord? OfficialRecord, CalculationAnomaly? Anomaly) Resolve(
+        ExchangeRateRecord? official,
+        decimal? manualOverrideRate,
+        string fromCurrencyCode,
+        string toCurrencyCode,
+        DateOnly referenceDate,
+        string missingRateAnomalyCode,
+        string manualDiffAnomalyCode,
+        int? lineNumber = null)
+    {
+        if (manualOverrideRate.HasValue && manualOverrideRate.Value > 0m)
+        {
+            if (official != null)
+            {
+                decimal officialUnitRate = ToUnitRate(official);
+                decimal relativeDiffPercent = officialUnitRate == 0m
+                    ? 100m
+                    : Math.Abs((manualOverrideRate.Value - officialUnitRate) / officialUnitRate) * 100m;
+
+                if (relativeDiffPercent > ManualRateDifferenceWarningThresholdPercent)
+                {
+                    var warning = new CalculationAnomaly(
+                        AnomalySeverity.Avertissement,
+                        manualDiffAnomalyCode,
+                        $"⚠️ TAUX MANUEL : Le taux {fromCurrencyCode}→{toCurrencyCode} utilisé ({manualOverrideRate.Value:F4}) diffère de {relativeDiffPercent:F2} % du taux officiel enregistré ({officialUnitRate:F4} - {official.SourceName}).",
+                        LineNumber: lineNumber,
+                        ExpectedValue: officialUnitRate.ToString("F4"),
+                        ActualValue: manualOverrideRate.Value.ToString("F4"));
+                    return (manualOverrideRate.Value, official, warning);
+                }
+            }
+
+            return (manualOverrideRate.Value, official, null);
+        }
+
+        if (official == null)
+        {
+            var blocking = new CalculationAnomaly(
+                AnomalySeverity.Blocage,
+                missingRateAnomalyCode,
+                $"⚠️ Taux de change absent pour la conversion {fromCurrencyCode}→{toCurrencyCode} à la date de référence {referenceDate:dd/MM/yyyy}.",
+                LineNumber: lineNumber);
+            return (0m, null, blocking);
+        }
+
+        return (ToUnitRate(official), official, null);
+    }
 }
 
 /// <summary>
 /// Convertisseur de devises versionné avec contrôle ALCES et alerte Taux Manuel (Sections 13 & 14).
 /// Base juridique : Art. 16 decies du Code des Douanes (Loi n° 17-04 du 16 février 2017, JORA n° 11).
+/// Usage EXCLUSIF : conversion réglementaire/douanière d'une devise vers DZD (alimente la valeur en
+/// douane, les droits et les taxes). Pour toute conversion commerciale entre deux devises quelconques
+/// (ex: EUR -&gt; USD, Section 6 du plan multi-devises), voir <see cref="CurrencyConversionService"/> —
+/// les deux classes partagent la même logique de normalisation via <see cref="ExchangeRateNormalization"/>
+/// pour ne jamais dupliquer une formule de conversion (Section 8).
 /// </summary>
 public sealed class CurrencyCalculator
 {
@@ -140,37 +292,100 @@ public sealed class CurrencyCalculator
 
         var official = _rateProvider.GetRegulatoryRate(currencyCode, referenceDate);
 
-        if (manualOverrideRate.HasValue && manualOverrideRate.Value > 0m)
-        {
-            if (official != null && official.RateToDzd != manualOverrideRate.Value)
-            {
-                var warning = new CalculationAnomaly(
-                    AnomalySeverity.Avertissement,
-                    "MANUAL_EXCHANGE_RATE_DIFF",
-                    $"⚠️ TAUX MANUEL : Le taux utilisé ({manualOverrideRate.Value:F4}) diffère du taux réglementaire enregistré ({official.RateToDzd:F4} - {official.SourceName}).",
-                    ExpectedValue: official.RateToDzd.ToString("F4"),
-                    ActualValue: manualOverrideRate.Value.ToString("F4"));
-                return (manualOverrideRate.Value, official, warning);
-            }
-
-            return (manualOverrideRate.Value, official, null);
-        }
-
-        if (official == null)
-        {
-            var blocking = new CalculationAnomaly(
-                AnomalySeverity.Blocage,
-                "MISSING_EXCHANGE_RATE",
-                $"⚠️ Taux de change absent pour la devise '{currencyCode}' à la date de référence {referenceDate:dd/MM/yyyy}.");
-            return (0m, null, blocking);
-        }
-
-        return (official.RateToDzd / official.QuotityUnit, official, null);
+        return ExchangeRateNormalization.Resolve(
+            official,
+            manualOverrideRate,
+            currencyCode,
+            "DZD",
+            referenceDate,
+            missingRateAnomalyCode: "MISSING_EXCHANGE_RATE",
+            manualDiffAnomalyCode: "MANUAL_EXCHANGE_RATE_DIFF");
     }
 
     public static decimal RoundDzd(decimal amount) =>
         Math.Round(amount, 2, MidpointRounding.AwayFromZero);
 }
+
+/// <summary>
+/// Service CENTRALISÉ de conversion entre devises quelconques (Section 8 du plan multi-devises) :
+/// "Convert(amount, fromCurrency, toCurrency, rate)". Couvre notamment la conversion COMMERCIALE
+/// (ex: EUR -&gt; USD pour la valeur de l'autorisation d'importation, Section 5 & 13) et reste
+/// architecturalement extensible à toute autre paire de devises (USD -&gt; EUR, DZD -&gt; USD...).
+/// Ne doit JAMAIS être utilisé pour la conversion réglementaire/douanière vers DZD qui reste la
+/// responsabilité exclusive de <see cref="CurrencyCalculator"/> (Section 14 & 22 : "ne pas mélanger
+/// conversion commerciale et conversion réglementaire").
+/// </summary>
+public sealed class CurrencyConversionService
+{
+    private readonly IExchangeRateProvider _rateProvider;
+
+    public CurrencyConversionService(IExchangeRateProvider rateProvider)
+    {
+        _rateProvider = rateProvider ?? throw new ArgumentNullException(nameof(rateProvider));
+    }
+
+    /// <summary>Résout le taux effectif pour convertir <paramref name="fromCurrencyCode"/> vers <paramref name="toCurrencyCode"/>.</summary>
+    public (decimal EffectiveRate, ExchangeRateRecord? OfficialRecord, CalculationAnomaly? Anomaly) ResolveCrossRate(
+        string fromCurrencyCode,
+        string toCurrencyCode,
+        DateOnly referenceDate,
+        decimal? manualOverrideRate)
+    {
+        if (string.Equals(fromCurrencyCode, toCurrencyCode, StringComparison.OrdinalIgnoreCase))
+        {
+            return (1.0m, null, null);
+        }
+
+        var official = _rateProvider.GetRate(fromCurrencyCode, toCurrencyCode, referenceDate);
+
+        return ExchangeRateNormalization.Resolve(
+            official,
+            manualOverrideRate,
+            fromCurrencyCode,
+            toCurrencyCode,
+            referenceDate,
+            missingRateAnomalyCode: "MISSING_COMMERCIAL_EXCHANGE_RATE",
+            manualDiffAnomalyCode: "MANUAL_COMMERCIAL_EXCHANGE_RATE_DIFF");
+    }
+
+    /// <summary>
+    /// Convertit un montant d'une devise vers une autre en appliquant le taux résolu (officiel ou manuel).
+    /// Ne modifie jamais la valeur/devise d'origine fournie par l'appelant (Section 4 : "ne jamais
+    /// remplacer la devise originale de la facture par une conversion") — se contente de retourner le
+    /// résultat converti à côté de l'original.
+    /// </summary>
+    public CurrencyConversionOutcome Convert(
+        decimal amount,
+        string fromCurrencyCode,
+        string toCurrencyCode,
+        DateOnly referenceDate,
+        decimal? manualOverrideRate)
+    {
+        var (rate, official, anomaly) = ResolveCrossRate(fromCurrencyCode, toCurrencyCode, referenceDate, manualOverrideRate);
+        decimal convertedAmount = CurrencyCalculator.RoundDzd(amount * rate);
+
+        return new CurrencyConversionOutcome(
+            OriginalAmount: amount,
+            FromCurrencyCode: fromCurrencyCode,
+            ToCurrencyCode: toCurrencyCode,
+            EffectiveRate: rate,
+            ConvertedAmount: convertedAmount,
+            IsManualRate: manualOverrideRate.HasValue && manualOverrideRate.Value > 0m,
+            OfficialRecord: official,
+            Anomaly: anomaly);
+    }
+}
+
+/// <summary>Résultat traçable d'une conversion commerciale entre deux devises (Section 7 & 8).</summary>
+public sealed record CurrencyConversionOutcome(
+    decimal OriginalAmount,
+    string FromCurrencyCode,
+    string ToCurrencyCode,
+    decimal EffectiveRate,
+    decimal ConvertedAmount,
+    bool IsManualRate,
+    ExchangeRateRecord? OfficialRecord,
+    CalculationAnomaly? Anomaly);
 
 /// <summary>
 /// Moteur de répartition configurable des frais (Sections 11 & 12).
@@ -385,17 +600,20 @@ public sealed class ImportCalculationOrchestrator
     private readonly CostAllocationEngine _allocationEngine;
     private readonly CustomsValueCalculator _customsValueCalculator;
     private readonly RegulatoryRuleEngine _regulatoryEngine;
+    private readonly CurrencyConversionService _commercialConversionService;
 
     public ImportCalculationOrchestrator(
         CurrencyCalculator currencyCalculator,
         CostAllocationEngine allocationEngine,
         CustomsValueCalculator customsValueCalculator,
-        RegulatoryRuleEngine regulatoryEngine)
+        RegulatoryRuleEngine regulatoryEngine,
+        CurrencyConversionService commercialConversionService)
     {
         _currencyCalculator = currencyCalculator;
         _allocationEngine = allocationEngine;
         _customsValueCalculator = customsValueCalculator;
         _regulatoryEngine = regulatoryEngine;
+        _commercialConversionService = commercialConversionService;
     }
 
     public ImportCalculationSummary ExecuteCalculation(Company company, ImportOperation operation)
@@ -405,7 +623,8 @@ public sealed class ImportCalculationOrchestrator
         // 1. Contrôle Incoterm & champs dynamiques (Sections 7, 8, 28)
         _customsValueCalculator.ValidateIncotermRequiredFees(operation, anomalies);
 
-        // 2. Résolution du taux de change principal (Sections 13 & 14)
+        // 2. Résolution du taux de change principal RÉGLEMENTAIRE (Sections 13 & 14) : devise facture -> DZD.
+        // C'est la SEULE conversion qui alimente la valeur en douane / droits / taxes ci-dessous.
         var (mainRateToDzd, _, mainRateAnomaly) = _currencyCalculator.ResolveRate(
             operation.MainCurrencyCode,
             operation.ReferenceDate,
@@ -413,6 +632,40 @@ public sealed class ImportCalculationOrchestrator
 
         if (mainRateAnomaly != null)
             anomalies.Add(mainRateAnomaly);
+
+        // 2bis. Résolution du taux de change COMMERCIAL (Section 6 & 14 du plan multi-devises) : devise
+        // facture -> devise de l'autorisation d'importation (ex: EUR -> USD). Totalement indépendant de la
+        // conversion réglementaire ci-dessus (Section 22 : "ne pas mélanger"). N'alimente JAMAIS
+        // CustomsOutcome / EconomicOutcome : reste une information séparée, affichée et exportée à part.
+        bool needsAuthorizationConversion = !string.IsNullOrWhiteSpace(operation.AuthorizationCurrencyCode)
+            && !string.Equals(operation.AuthorizationCurrencyCode, operation.MainCurrencyCode, StringComparison.OrdinalIgnoreCase);
+
+        decimal authorizationRate = 1.0m;
+        bool authorizationRateIsManual = false;
+        ExchangeRateRecord? authorizationOfficialRate = null;
+
+        if (needsAuthorizationConversion)
+        {
+            var (rate, official, commercialAnomaly) = _commercialConversionService.ResolveCrossRate(
+                operation.MainCurrencyCode,
+                operation.AuthorizationCurrencyCode,
+                operation.ReferenceDate,
+                operation.ManualAuthorizationExchangeRateOverride);
+
+            authorizationRate = rate;
+            authorizationOfficialRate = official;
+            authorizationRateIsManual = operation.ManualAuthorizationExchangeRateOverride.HasValue
+                && operation.ManualAuthorizationExchangeRateOverride.Value > 0m;
+
+            if (commercialAnomaly != null)
+            {
+                // La conversion commerciale est informative : une absence de taux ne doit jamais bloquer le
+                // calcul douanier réel (seul un taux réglementaire manquant le peut, Section 2bis/22).
+                anomalies.Add(commercialAnomaly.Severity == AnomalySeverity.Blocage
+                    ? commercialAnomaly with { Severity = AnomalySeverity.Avertissement }
+                    : commercialAnomaly);
+            }
+        }
 
         // 3. Calcul de la valeur d'achat par ligne (en devise et convertie en DZD)
         var linesWithPurchaseDzd = new List<(ImportLine Line, decimal LinePurchaseCurrency, decimal LinePurchaseDzd, decimal LineRate)>();
@@ -587,7 +840,16 @@ public sealed class ImportCalculationOrchestrator
                 VatRatePercent: appliedVatRate,
                 ImportVatAmountDzd: importVatDzd,
                 TotalDutiesAndTaxesDzd: totalLineDutiesAndTaxesDzd,
-                CustomsValuePlusDutiesAndTaxesDzd: lineCustomsClearedTotalDzd);
+                CustomsValuePlusDutiesAndTaxesDzd: lineCustomsClearedTotalDzd,
+                // Section 17 de l'audit : citation légale issue de la règle réglementaire RÉELLEMENT
+                // résolue pour cette ligne (jamais une référence générique codée en dur) ; null si aucune
+                // règle officielle n'a été trouvée (ex: taux Excel confirmé par défaut de règle officielle).
+                CustomsDutyLegalArticleReference: regOutcome.CustomsDutyRule?.LegalSource.ArticleReference,
+                CustomsDutyJoraReference: regOutcome.CustomsDutyRule?.LegalSource.JoraReference,
+                CustomsDutyRegulatoryVersionCode: regOutcome.CustomsDutyRule?.RegulatoryVersionCode,
+                VatLegalArticleReference: regOutcome.VatRule?.LegalSource.ArticleReference,
+                VatJoraReference: regOutcome.VatRule?.LegalSource.JoraReference,
+                VatRegulatoryVersionCode: regOutcome.VatRule?.RegulatoryVersionCode);
 
             // Résultat 2 (Section 26) : Coût d'acquisition et Coût de revient économique réel
             decimal feesInCustomsValueDzd = lineAllocations
@@ -626,6 +888,38 @@ public sealed class ImportCalculationOrchestrator
                 UnitCostOfGoodsDzd: unitCostOfGoodsDzd,
                 LandedCostCoefficient: landedMultiplier);
 
+            // Section 12 du plan multi-devises : conversion COMMERCIALE (jamais réglementaire) de cette
+            // ligne vers la devise d'autorisation d'importation, pour affichage/export uniquement.
+            LineCommercialConversion? lineAuthorizationConversion = null;
+            if (needsAuthorizationConversion && !string.Equals(line.CurrencyCode, operation.AuthorizationCurrencyCode, StringComparison.OrdinalIgnoreCase))
+            {
+                decimal effectiveLineAuthorizationRate = authorizationRate;
+                bool lineRateIsManual = authorizationRateIsManual;
+
+                if (!string.Equals(line.CurrencyCode, operation.MainCurrencyCode, StringComparison.OrdinalIgnoreCase))
+                {
+                    // Cas rare : une ligne dans une devise différente de la devise principale de l'opération.
+                    var (lineAuthRate, _, lineAuthAnomaly) = _commercialConversionService.ResolveCrossRate(
+                        line.CurrencyCode, operation.AuthorizationCurrencyCode, operation.ReferenceDate, null);
+                    effectiveLineAuthorizationRate = lineAuthRate;
+                    lineRateIsManual = false;
+                    if (lineAuthAnomaly != null)
+                        anomalies.Add((lineAuthAnomaly with { Severity = AnomalySeverity.Avertissement, LineNumber = line.LineNumber }));
+                }
+
+                decimal lineAuthorizationTotal = CurrencyCalculator.RoundDzd(purchaseCurrency * effectiveLineAuthorizationRate);
+                decimal lineAuthorizationUnit = line.Quantity == 0m
+                    ? 0m
+                    : Math.Round(lineAuthorizationTotal / line.Quantity, 4, MidpointRounding.AwayFromZero);
+
+                lineAuthorizationConversion = new LineCommercialConversion(
+                    AuthorizationCurrencyCode: operation.AuthorizationCurrencyCode,
+                    AuthorizationUnitPrice: lineAuthorizationUnit,
+                    AuthorizationTotalAmount: lineAuthorizationTotal,
+                    EffectiveRate: effectiveLineAuthorizationRate,
+                    IsManualRate: lineRateIsManual);
+            }
+
             lineResults.Add(new LineFullCalculationResult(
                 LineNumber: line.LineNumber,
                 ProductReference: line.ProductReference,
@@ -635,7 +929,31 @@ public sealed class ImportCalculationOrchestrator
                 AppliedExchangeRateToDzd: lineRate,
                 CustomsOutcome: customsOutcome,
                 EconomicOutcome: economicOutcome,
-                FeeAllocations: lineAllocations));
+                FeeAllocations: lineAllocations,
+                AuthorizationConversion: lineAuthorizationConversion));
+        }
+
+        // Section 5, 6, 9, 11 & 13 du plan multi-devises : conversion commerciale globale de la facture
+        // (somme des lignes dans la devise principale) vers la devise de l'autorisation d'importation.
+        CommercialAuthorizationConversion? commercialAuthorizationConversion = null;
+        if (needsAuthorizationConversion)
+        {
+            decimal totalMainCurrencyAmount = lineResults
+                .Where(l => string.Equals(l.CurrencyCode, operation.MainCurrencyCode, StringComparison.OrdinalIgnoreCase))
+                .Sum(l => l.EconomicOutcome.PurchaseValueCurrency);
+
+            decimal totalAuthorizationAmount = CurrencyCalculator.RoundDzd(totalMainCurrencyAmount * authorizationRate);
+
+            commercialAuthorizationConversion = new CommercialAuthorizationConversion(
+                OriginalCurrencyCode: operation.MainCurrencyCode,
+                OriginalTotalAmount: totalMainCurrencyAmount,
+                AuthorizationCurrencyCode: operation.AuthorizationCurrencyCode,
+                AuthorizationTotalAmount: totalAuthorizationAmount,
+                EffectiveRate: authorizationRate,
+                IsManualRate: authorizationRateIsManual,
+                OfficialRateSourceName: authorizationOfficialRate?.SourceName,
+                OfficialRateValidFrom: authorizationOfficialRate?.ValidFrom,
+                RateTypeLabelFr: authorizationRateIsManual ? "⚠️ TAUX MANUEL" : "Taux officiel enregistré");
         }
 
         return new ImportCalculationSummary(
@@ -656,6 +974,7 @@ public sealed class ImportCalculationOrchestrator
             LineResults: lineResults,
             Anomalies: anomalies,
             HasBlockingAnomalies: anomalies.Any(a => a.Severity == AnomalySeverity.Blocage),
-            MandatoryLegalDisclaimerFr: OfficialLegalDisclaimer);
+            MandatoryLegalDisclaimerFr: OfficialLegalDisclaimer,
+            CommercialAuthorizationConversion: commercialAuthorizationConversion);
     }
 }
