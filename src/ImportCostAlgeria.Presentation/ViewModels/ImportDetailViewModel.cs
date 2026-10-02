@@ -1,5 +1,7 @@
 using System;
 using System.Collections.ObjectModel;
+using System.Collections.Specialized;
+using System.ComponentModel;
 using System.Linq;
 using System.Windows;
 using ImportCostAlgeria.AI;
@@ -51,6 +53,20 @@ public sealed class ImportDetailViewModel : ObservableObject
     private decimal _totalDapsDzd;
     private decimal _totalRpsDzd;
     private decimal _totalFraisDzd;
+    private decimal _totalPrixVenteDzd;
+    private decimal _totalBeneficeDzd;
+    private string _pourcentageBeneficeDisplayFr = "Non calculable";
+    private bool _showResultsBreakdown;
+    private int _simulationRateDeltaDzd;
+    private bool _simulationAvailable;
+    private string _simulationCurrentRateLabelFr = string.Empty;
+    private string _simulationSimulatedRateLabelFr = string.Empty;
+    private decimal _simulationValeurDouaneDzd;
+    private decimal _simulationTotalDedouanementDzd;
+    private decimal _simulationCoutRevientDzd;
+    private decimal _simulationTotalPrixVenteDzd;
+    private decimal _simulationBeneficeDzd;
+    private string _simulationPourcentageBeneficeDisplayFr = "Non calculable";
     private bool _isProvisionalCalculation;
     private string _provisionalMessageFr = string.Empty;
     private decimal _totalDedouanementDzd;
@@ -89,6 +105,12 @@ public sealed class ImportDetailViewModel : ObservableObject
         // Revue du 2026-10-02 (REFONTE INTERFACE, Section 10) : masquage dynamique des colonnes
         // facultatives (IA/fiscales) dès que l'ensemble des articles affichés change.
         Lines.CollectionChanged += (_, __) => RecomputeDynamicColumnVisibility();
+        // Correction 2026-10-02 (PRIORITÉ 2 — "TOTAL PRIX DE VENTE / TOTAL BÉNÉFICE / % BÉNÉFICE") : ces
+        // trois indicateurs commerciaux sont de simples DÉRIVÉES arithmétiques des prix de vente DÉJÀ
+        // saisis par l'utilisateur (ImportLineRowViewModel.SalePriceDzd) et du dernier résultat calculé
+        // (PuReviensDzd) — ils doivent donc se mettre à jour IMMÉDIATEMENT, sans attendre un nouveau
+        // "Exécuter le calcul complet", exactement comme ProfitDzd/ProfitPercent au niveau de chaque ligne.
+        Lines.CollectionChanged += OnLinesCollectionChangedForCommercialTotals;
         Fees = new ObservableCollection<FeeRowViewModel>();
         Anomalies = new ObservableCollection<CalculationAnomaly>();
         FeeTemplates = ImportFeeCatalog.StandardTemplates.ToArray();
@@ -129,6 +151,15 @@ public sealed class ImportDetailViewModel : ObservableObject
         UndoCommand = new RelayCommand(() => UndoRedo.Undo(), () => UndoRedo.CanUndo);
         RedoCommand = new RelayCommand(() => UndoRedo.Redo(), () => UndoRedo.CanRedo);
         ToggleAnomalyDetailsCommand = new RelayCommand(() => ShowAnomalyDetails = !ShowAnomalyDetails);
+        ToggleResultsBreakdownCommand = new RelayCommand(() => ShowResultsBreakdown = !ShowResultsBreakdown);
+        // PRIORITÉ 3 : chaque bouton [-5]...[+1]...[0]...[+5] passe sa valeur en CommandParameter (texte,
+        // ex: "+2", "-3", "0") — jamais interprété comme un pourcentage (Section "IMPORTANT : ici point
+        // signifie une variation ABSOLUE du taux de change dans la devise de cotation DA").
+        SetSimulationDeltaCommand = new RelayCommand<string>(delta =>
+        {
+            if (int.TryParse(delta, out int value))
+                SimulationRateDeltaDzd = value;
+        });
     }
 
     public void Initialize(Company company, ImportOperation operation, ImportationsViewModel parentList)
@@ -155,6 +186,11 @@ public sealed class ImportDetailViewModel : ObservableObject
         AnomalyGroups.Clear();
         NotificationBannerFr = string.Empty;
         ShowAnomalyDetails = false;
+        ShowResultsBreakdown = false;
+        // PRIORITÉ 3 : chaque importation ouverte démarre sur le scénario "0" (taux actuel, aucune
+        // variation) — jamais une variation héritée de l'importation précédemment affichée à l'écran.
+        _simulationRateDeltaDzd = 0;
+        OnPropertyChanged(nameof(SimulationRateDeltaDzd));
         _lastSummary = null;
         _lastDisplayedInputHash = null;
         IsCalculationOutdated = false;
@@ -323,6 +359,185 @@ public sealed class ImportDetailViewModel : ObservableObject
     public decimal TotalRpsDzd { get => _totalRpsDzd; private set => SetField(ref _totalRpsDzd, value); }
     public decimal TotalFraisDzd { get => _totalFraisDzd; private set => SetField(ref _totalFraisDzd, value); }
 
+    // ------------------------------------------------------------------------------------------
+    // Correction 2026-10-02 (PRIORITÉ 2 — "Nouvelle présentation des résultats") : les 3 indicateurs
+    // COMMERCIAUX (Total prix de vente / Total bénéfice / % bénéfice), affichés à côté des 3 indicateurs
+    // RÉGLEMENTAIRES principaux (Valeur en douane / Coût de revient / Total dédouanement). Calculés
+    // EXCLUSIVEMENT à partir des prix de vente RÉELLEMENT saisis par l'utilisateur pour les articles
+    // (ImportLineRowViewModel.SalePriceDzd) — jamais à partir du coût de revient, qui resterait une
+    // tautologie. Formules IMPOSÉES par la demande utilisateur :
+    //   Total prix de vente = Σ (Quantité × Prix de vente unitaire DA)
+    //   Total bénéfice      = Total prix de vente - Coût de revient total
+    //   % bénéfice          = (Total bénéfice / Total prix de vente) × 100
+    // Volontairement DISTINCT de ProfitCalculator.ComputeProfitPercent (qui reste la marge PAR LIGNE
+    // rapportée au COÛT, Section 17) — ici la marge globale est rapportée au PRIX DE VENTE (convention
+    // usuelle du taux de marge commerciale), sur demande explicite de l'utilisateur.
+    // ------------------------------------------------------------------------------------------
+    public decimal TotalPrixVenteDzd { get => _totalPrixVenteDzd; private set => SetField(ref _totalPrixVenteDzd, value); }
+    public decimal TotalBeneficeDzd { get => _totalBeneficeDzd; private set => SetField(ref _totalBeneficeDzd, value); }
+
+    /// <summary>
+    /// Texte prêt à afficher pour le % bénéfice — "Non calculable" (jamais une exception, jamais "∞" ni une
+    /// valeur inventée) lorsque le total prix de vente est nul.
+    /// </summary>
+    public string PourcentageBeneficeDisplayFr { get => _pourcentageBeneficeDisplayFr; private set => SetField(ref _pourcentageBeneficeDisplayFr, value); }
+
+    /// <summary>
+    /// Section "Bouton Voir les détails" : masque par défaut les résultats secondaires (DD, CS, TVA, PRCT,
+    /// RPS, DAPS, Frais alloués) pour ne garder visibles, par défaut, que les 3 indicateurs principaux
+    /// (Valeur en douane / Coût de revient / Total dédouanement) et les 3 indicateurs commerciaux. Aucune
+    /// donnée du modèle de calcul n'est supprimée — uniquement une amélioration de présentation.
+    /// </summary>
+    public bool ShowResultsBreakdown { get => _showResultsBreakdown; set => SetField(ref _showResultsBreakdown, value); }
+    public RelayCommand ToggleResultsBreakdownCommand { get; private set; } = null!;
+
+    private void OnLinesCollectionChangedForCommercialTotals(object? sender, NotifyCollectionChangedEventArgs e)
+    {
+        if (e.OldItems != null)
+            foreach (ImportLineRowViewModel row in e.OldItems)
+                row.PropertyChanged -= OnLineRowPropertyChangedForCommercialTotals;
+
+        if (e.NewItems != null)
+            foreach (ImportLineRowViewModel row in e.NewItems)
+                row.PropertyChanged += OnLineRowPropertyChangedForCommercialTotals;
+
+        RecomputeCommercialTotals();
+    }
+
+    private void OnLineRowPropertyChangedForCommercialTotals(object? sender, PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName == nameof(ImportLineRowViewModel.SalePriceDzd) || e.PropertyName == nameof(ImportLineRowViewModel.Result))
+        {
+            RecomputeCommercialTotals();
+            // Note de performance : volontairement PAS appelé depuis OnLinesCollectionChangedForCommercialTotals
+            // (qui se déclenche N fois lors d'un chargement/import Excel en masse de N lignes) — seul un
+            // changement de prix de vente SUR UNE LIGNE DÉJÀ AFFICHÉE (action utilisateur unique, jamais une
+            // boucle) redéclenche ici la simulation (RecomputeSimulation exécute un calcul complet via
+            // ImportSimulatorService, coûteux à répéter N fois dans une boucle d'ajout en masse).
+            RecomputeSimulation();
+        }
+    }
+
+    /// <summary>
+    /// Recalcule les 3 indicateurs commerciaux à partir des lignes actuellement affichées — jamais une
+    /// exception si aucun prix de vente n'est encore saisi (Total prix de vente = 0, "% bénéfice" =
+    /// "Non calculable" plutôt qu'une division par zéro silencieuse ou une erreur).
+    /// </summary>
+    private void RecomputeCommercialTotals()
+    {
+        decimal totalSale = Lines
+            .Where(l => l.SalePriceDzd.HasValue)
+            .Sum(l => l.Line.Quantity * l.SalePriceDzd!.Value);
+        totalSale = CurrencyRounding.Round(totalSale, "DZD");
+
+        TotalPrixVenteDzd = totalSale;
+        TotalBeneficeDzd = CurrencyRounding.Round(totalSale - TotalCoutRevientDzd, "DZD");
+        PourcentageBeneficeDisplayFr = totalSale == 0m
+            ? "Non calculable"
+            : $"{Math.Round(TotalBeneficeDzd / totalSale * 100m, 2, MidpointRounding.AwayFromZero):N2} %";
+
+    }
+
+    // ============================================================================================
+    // PRIORITÉ 3 (demande utilisateur 2026-10-02) — "Simulation du taux de change" : simulation
+    // ENTIÈREMENT virtuelle/lecture seule d'une variation future (+/- N DA pour 1 unité de la devise
+    // facture) de l'importation, SANS jamais modifier l'importation réelle, les lignes, les frais, le prix
+    // de vente, ni la base de données — réutilise ImportSimulatorService (ImportCostAlgeria.AI), DÉJÀ
+    // conçu pour exécuter un calcul complet sur un CLONE isolé en mémoire (IsSimulation = true,
+    // HasModifiedOriginalImport toujours false, aucune sauvegarde). "Point" = variation ABSOLUE du taux en
+    // DA (jamais un pourcentage) — ex: +1 sur 150,7166 DA donne 151,7166 DA, jamais 150,7166 × 1,01.
+    // ============================================================================================
+
+    /// <summary>Variation sélectionnée, en DA pour 1 unité de la devise facture (-5 à +5) ; 0 = taux actuel.</summary>
+    public int SimulationRateDeltaDzd
+    {
+        get => _simulationRateDeltaDzd;
+        set { if (SetField(ref _simulationRateDeltaDzd, value)) RecomputeSimulation(); }
+    }
+
+    /// <summary>Faux si la devise facture est déjà le DA (aucune conversion/simulation de change n'a de sens) ou si aucun taux n'est disponible pour la date de l'importation.</summary>
+    public bool SimulationAvailable { get => _simulationAvailable; private set => SetField(ref _simulationAvailable, value); }
+    public string SimulationCurrentRateLabelFr { get => _simulationCurrentRateLabelFr; private set => SetField(ref _simulationCurrentRateLabelFr, value); }
+    public string SimulationSimulatedRateLabelFr { get => _simulationSimulatedRateLabelFr; private set => SetField(ref _simulationSimulatedRateLabelFr, value); }
+    public decimal SimulationValeurDouaneDzd { get => _simulationValeurDouaneDzd; private set => SetField(ref _simulationValeurDouaneDzd, value); }
+    public decimal SimulationTotalDedouanementDzd { get => _simulationTotalDedouanementDzd; private set => SetField(ref _simulationTotalDedouanementDzd, value); }
+    public decimal SimulationCoutRevientDzd { get => _simulationCoutRevientDzd; private set => SetField(ref _simulationCoutRevientDzd, value); }
+    /// <summary>RÈGLE ABSOLUE (demande utilisateur) : toujours strictement égal à <see cref="TotalPrixVenteDzd"/> — le prix de vente ne change JAMAIS pendant la simulation.</summary>
+    public decimal SimulationTotalPrixVenteDzd { get => _simulationTotalPrixVenteDzd; private set => SetField(ref _simulationTotalPrixVenteDzd, value); }
+    public decimal SimulationBeneficeDzd { get => _simulationBeneficeDzd; private set => SetField(ref _simulationBeneficeDzd, value); }
+    public string SimulationPourcentageBeneficeDisplayFr { get => _simulationPourcentageBeneficeDisplayFr; private set => SetField(ref _simulationPourcentageBeneficeDisplayFr, value); }
+
+    public RelayCommand<string> SetSimulationDeltaCommand { get; private set; } = null!;
+
+    /// <summary>
+    /// Recalcule intégralement le scénario simulé à partir de <see cref="SimulationRateDeltaDzd"/>, sur un
+    /// CLONE isolé (ImportSimulatorService) — n'affecte jamais l'importation réelle, les totaux affichés
+    /// ailleurs sur l'écran, ni la base de données (aucun appel à un dépôt/repository ici).
+    /// </summary>
+    private void RecomputeSimulation()
+    {
+        if (_operation == null) { SimulationAvailable = false; return; }
+
+        if (string.Equals(_operation.MainCurrencyCode, "DZD", StringComparison.OrdinalIgnoreCase))
+        {
+            SimulationAvailable = false;
+            SimulationCurrentRateLabelFr = "Devise principale = DA : aucune simulation de taux de change n'est applicable.";
+            SimulationSimulatedRateLabelFr = string.Empty;
+            return;
+        }
+
+        var currencyCalculator = _engineFactory.CreateCurrencyCalculator();
+        var (currentRate, _, _) = currencyCalculator.ResolveRate(
+            _operation.MainCurrencyCode, _operation.ReferenceDate, _operation.ManualExchangeRateOverride);
+
+        if (currentRate <= 0m)
+        {
+            SimulationAvailable = false;
+            SimulationCurrentRateLabelFr = $"Taux {_operation.MainCurrencyCode}/DA indisponible pour cette date : simulation impossible.";
+            SimulationSimulatedRateLabelFr = string.Empty;
+            return;
+        }
+
+        SimulationAvailable = true;
+        decimal simulatedRate = currentRate + SimulationRateDeltaDzd;
+        SimulationCurrentRateLabelFr = $"Taux actuel : 1 {_operation.MainCurrencyCode} = {currentRate:F4} DA";
+        SimulationSimulatedRateLabelFr = SimulationRateDeltaDzd == 0
+            ? $"Taux simulé : identique au taux actuel (1 {_operation.MainCurrencyCode} = {currentRate:F4} DA)"
+            : $"Taux simulé ({(SimulationRateDeltaDzd > 0 ? "+" : string.Empty)}{SimulationRateDeltaDzd}) : 1 {_operation.MainCurrencyCode} = {simulatedRate:F4} DA";
+
+        var simulator = _engineFactory.CreateSimulator();
+        var result = simulator.RunSimulation(_company, _operation, new SimulationScenarioOverrides(ExchangeRateOverride: simulatedRate));
+        var calc = result.SimulatedCalculation;
+
+        SimulationValeurDouaneDzd = calc.TotalCustomsValueDzd;
+        SimulationCoutRevientDzd = calc.TotalRealCostOfGoodsDzd;
+
+        var rpsFeeIds = _operation.Fees
+            .Where(f => string.Equals(f.FeeCategoryCode, "RPS", StringComparison.OrdinalIgnoreCase))
+            .Select(f => f.Id)
+            .ToHashSet();
+        var simulatedTaxes = calc.LineResults.SelectMany(l => l.CustomsOutcome.AdditionalTaxes).ToList();
+        decimal SimSumTax(string code) => simulatedTaxes
+            .Where(t => string.Equals(t.TaxCode, code, StringComparison.OrdinalIgnoreCase))
+            .Sum(t => t.TaxAmountDzd);
+        decimal simulatedRps = calc.LineResults
+            .SelectMany(l => l.FeeAllocations)
+            .Where(a => rpsFeeIds.Contains(a.FeeId))
+            .Sum(a => a.AllocatedAmountDzd);
+
+        // Même formule que TotalDedouanementDzd (Section 9) : DD + CS + TVA + PRCT + TCS + RPS.
+        SimulationTotalDedouanementDzd =
+            calc.TotalCustomsDutyDzd + SimSumTax("CS") + calc.TotalImportVatDzd + SimSumTax("PRCT") + SimSumTax("TCS") + simulatedRps;
+
+        // RÈGLE ABSOLUE (demande utilisateur, "PRIX DE VENTE INCHANGÉ") : le prix de vente du marché reste
+        // fixe pendant la simulation — seul le coût lié au taux de change évolue.
+        SimulationTotalPrixVenteDzd = TotalPrixVenteDzd;
+        SimulationBeneficeDzd = CurrencyRounding.Round(SimulationTotalPrixVenteDzd - SimulationCoutRevientDzd, "DZD");
+        SimulationPourcentageBeneficeDisplayFr = SimulationTotalPrixVenteDzd == 0m
+            ? "Non calculable"
+            : $"{Math.Round(SimulationBeneficeDzd / SimulationTotalPrixVenteDzd * 100m, 2, MidpointRounding.AwayFromZero):N2} %";
+    }
+
     /// <summary>
     /// Section 15 de la correction du 2026-10-02 : vrai lorsque le calcul s'est exécuté SANS anomalie
     /// bloquante mais en utilisant au moins un taux PAR DÉFAUT de l'importation (ou en laissant une taxe
@@ -415,20 +630,35 @@ public sealed class ImportDetailViewModel : ObservableObject
             return;
         }
 
-        // Revue du 2026-10-02 (Section 7 — "Valeur en douane affichée en USD") : conversion D'AFFICHAGE
-        // UNIQUEMENT — la valeur réglementaire (TotalValeurDouaneDzd/CustomsValueDzd) n'est JAMAIS modifiée
-        // ici. Depuis la correction du Section 4 ("Corriger définitivement la conversion EUR/USD/DZD"),
-        // CurrencyConversionService.ResolveCrossRate sait désormais convertir directement DZD -> devise
-        // demandée (ex: USD) en divisant par le taux réglementaire officiel (1 USD = X DA), sans jamais
-        // multiplier ni passer par un taux croisé fragile — Section 7 : "Valeur_USD = Valeur_DZD / USD_DZD,
-        // jamais Valeur_DZD x taux USD".
-        var commercialConversion = _engineFactory.CreateCommercialConversionService();
-        var (crossRate, _, anomaly) = commercialConversion.ResolveCrossRate(
-            "DZD", CustomsValueDisplayCurrencyIso, _operation.ReferenceDate, null);
+        // Correction 2026-10-02 (PRIORITÉ 1 — "Conversion USD indisponible" alors qu'un taux USD existe) :
+        // CurrencyConversionService.ResolveCrossRate("DZD", "USD", ..., null) n'interroge QUE la table des
+        // taux PUBLIÉS globalement (ExchangeRateProvider.GetRegulatoryRate) — il ignore totalement un taux
+        // manuel saisi UNIQUEMENT pour cette importation (operation.ManualExchangeRateOverride /
+        // operation.ManualAuthorizationCurrencyRateToDzd), qui ne sont jamais publiés dans la table globale.
+        // Résultat : même avec "1 USD = 133,15 DA" renseigné manuellement pour CETTE importation, le message
+        // "Conversion USD indisponible" apparaissait à tort. Corrigé en résolvant le taux de la devise
+        // d'affichage EXACTEMENT comme le fait ImportCalculationOrchestrator (CurrencyCalculator.ResolveRate,
+        // avec le taux manuel propre à l'importation lorsque la devise demandée est la devise facture ou la
+        // devise d'autorisation de CETTE importation), puis en calculant l'inverse nous-mêmes — jamais en
+        // exigeant un taux publié dans le sens inverse "1 DA = X USD".
+        decimal? manualOverrideForDisplayCurrency =
+            string.Equals(CustomsValueDisplayCurrencyIso, _operation.MainCurrencyCode, StringComparison.OrdinalIgnoreCase)
+                ? _operation.ManualExchangeRateOverride
+                : string.Equals(CustomsValueDisplayCurrencyIso, _operation.AuthorizationCurrencyCode, StringComparison.OrdinalIgnoreCase)
+                    ? _operation.ManualAuthorizationCurrencyRateToDzd
+                    : null;
 
-        if (crossRate > 0m)
+        var currencyCalculator = _engineFactory.CreateCurrencyCalculator();
+        var (displayCurrencyToDzd, _, _) = currencyCalculator.ResolveRate(
+            CustomsValueDisplayCurrencyIso, _operation.ReferenceDate, manualOverrideForDisplayCurrency);
+
+        // Formule obligatoire : Valeur_X = Valeur_DZD / (1 X = Y DA) — jamais Valeur_DZD × taux, et jamais
+        // besoin d'un taux publié dans le sens "1 DA = Z X" (Section "Valeur en douane"). Réutilise
+        // ProfitCalculator.ConvertDzdToDisplayCurrency, déjà centralisé pour cette formule exacte.
+        decimal? converted = ProfitCalculator.ConvertDzdToDisplayCurrency(TotalValeurDouaneDzd, displayCurrencyToDzd);
+        if (converted.HasValue)
         {
-            CustomsValueDisplayAmount = Math.Round(TotalValeurDouaneDzd * crossRate, 2, MidpointRounding.AwayFromZero);
+            CustomsValueDisplayAmount = converted;
             CustomsValueDisplayErrorFr = string.Empty;
             return;
         }
@@ -437,9 +667,7 @@ public sealed class ImportDetailViewModel : ObservableObject
         // pourquoi la conversion est indisponible ; la valeur réglementaire en DZD reste, elle, toujours
         // affichable séparément (TotalValeurDouaneDzd, jamais affectée par cet échec de conversion).
         CustomsValueDisplayAmount = null;
-        CustomsValueDisplayErrorFr = anomaly != null
-            ? $"Conversion {CustomsValueDisplayCurrencyIso} indisponible : {anomaly.MessageFr}"
-            : $"Taux {CustomsValueDisplayCurrencyIso} indisponible pour la date de l'importation.";
+        CustomsValueDisplayErrorFr = $"Taux {CustomsValueDisplayCurrencyIso}/DA indisponible pour cette date.";
     }
     public string ExchangeRateInfo { get => _exchangeRateInfo; private set => SetField(ref _exchangeRateInfo, value); }
     public string IncotermGuidance { get => _incotermGuidance; private set => SetField(ref _incotermGuidance, value); }
@@ -468,6 +696,11 @@ public sealed class ImportDetailViewModel : ObservableObject
             else _operation.ManualExchangeRateOverride ??= 0m;
             OnPropertyChanged();
             OnPropertyChanged(nameof(ManualRateValue));
+            // Correction 2026-10-02 (PRIORITÉ 1) : un taux manuel saisi pour CETTE importation doit se
+            // répercuter immédiatement sur la conversion d'affichage de la valeur en douane (Section "Valeur
+            // en douane"), sans attendre un recalcul complet.
+            RefreshCustomsValueDisplayAmount();
+            RecomputeSimulation();
         }
     }
 
@@ -481,7 +714,12 @@ public sealed class ImportDetailViewModel : ObservableObject
             if (oldValue == value) return;
             _operation.ManualExchangeRateOverride = value;
             OnPropertyChanged();
-            UndoRedo?.RecordFieldChange("Taux de change manuel", v => { _operation.ManualExchangeRateOverride = v; OnPropertyChanged(nameof(ManualRateValue)); }, oldValue, value);
+            UndoRedo?.RecordFieldChange(
+                "Taux de change manuel",
+                v => { _operation.ManualExchangeRateOverride = v; OnPropertyChanged(nameof(ManualRateValue)); RefreshCustomsValueDisplayAmount(); RecomputeSimulation(); },
+                oldValue, value);
+            RefreshCustomsValueDisplayAmount();
+            RecomputeSimulation();
         }
     }
 
@@ -498,6 +736,7 @@ public sealed class ImportDetailViewModel : ObservableObject
             _operation.AuthorizationCurrencyCode = string.IsNullOrWhiteSpace(value) ? "USD" : value.Trim().ToUpperInvariant();
             OnPropertyChanged();
             RefreshAuthorizationExchangeRateInfo();
+            RefreshCustomsValueDisplayAmount();
             OnPropertyChanged(nameof(NeedsAuthorizationDisplay));
             OnPropertyChanged(nameof(AuthorizationCurrencySymbol));
             OnPropertyChanged(nameof(AuthorizationCurrencyRateSectionHeader));
@@ -525,6 +764,7 @@ public sealed class ImportDetailViewModel : ObservableObject
             OnPropertyChanged();
             OnPropertyChanged(nameof(ManualAuthorizationRateValue));
             RefreshAuthorizationExchangeRateInfo();
+            RefreshCustomsValueDisplayAmount();
         }
     }
 
@@ -540,9 +780,10 @@ public sealed class ImportDetailViewModel : ObservableObject
             OnPropertyChanged();
             UndoRedo?.RecordFieldChange(
                 "Taux de change manuel (devise d'autorisation)",
-                v => { _operation.ManualAuthorizationCurrencyRateToDzd = v; OnPropertyChanged(nameof(ManualAuthorizationRateValue)); RefreshAuthorizationExchangeRateInfo(); },
+                v => { _operation.ManualAuthorizationCurrencyRateToDzd = v; OnPropertyChanged(nameof(ManualAuthorizationRateValue)); RefreshAuthorizationExchangeRateInfo(); RefreshCustomsValueDisplayAmount(); },
                 oldValue, value);
             RefreshAuthorizationExchangeRateInfo();
+            RefreshCustomsValueDisplayAmount();
         }
     }
 
@@ -929,6 +1170,9 @@ public sealed class ImportDetailViewModel : ObservableObject
         TotalTvaDzd = summary.TotalImportVatDzd;
         TotalAutresTaxesDzd = summary.TotalAdditionalTaxesDzd;
         TotalFraisDzd = summary.TotalImportFeesDzd;
+        // PRIORITÉ 2 : Total prix de vente / Total bénéfice / % bénéfice dépendent de TotalCoutRevientDzd
+        // ci-dessus — toujours recalculés juste après, jamais avant.
+        RecomputeCommercialTotals();
 
         // Section 14 : détail de chaque taxe additionnelle séparément (plus un seul total agrégé).
         var allAppliedTaxes = summary.LineResults.SelectMany(l => l.CustomsOutcome.AdditionalTaxes).ToList();
@@ -951,6 +1195,9 @@ public sealed class ImportDetailViewModel : ObservableObject
 
         RecomputeDynamicColumnVisibility();
         RefreshCustomsValueDisplayAmount();
+        // PRIORITÉ 3 : un seul appel ici (jamais dans une boucle d'ajout de lignes) — rafraîchit le panneau
+        // de simulation avec les totaux réels FRAÎCHEMENT calculés/rechargés ci-dessus.
+        RecomputeSimulation();
 
         // Section 15 : distinguer un calcul réellement bloqué (bandeau rouge, inchangé) d'un calcul
         // PROVISOIRE (bandeau orange) qui s'est exécuté avec succès mais en utilisant au moins un taux

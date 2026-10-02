@@ -90,6 +90,13 @@ public sealed class ImportSimulatorService
             ExportShippingCountryIso2 = originalOperation.ExportShippingCountryIso2,
             MainCurrencyCode = originalOperation.MainCurrencyCode,
             ManualExchangeRateOverride = overrides.ExchangeRateOverride ?? originalOperation.ManualExchangeRateOverride,
+            // Correction 2026-10-02 (PRIORITÉ 3 — "Simulation du taux de change") : la devise d'autorisation
+            // et son éventuel taux manuel propre à l'importation doivent être reconduits dans le clone de
+            // simulation — sinon la conversion commerciale (CommercialAuthorizationConversion) retomberait
+            // silencieusement sur la devise par défaut ("USD" sans taux manuel), produisant des résultats de
+            // simulation incohérents avec l'opération réelle pour cette partie purement informative.
+            AuthorizationCurrencyCode = originalOperation.AuthorizationCurrencyCode,
+            ManualAuthorizationCurrencyRateToDzd = originalOperation.ManualAuthorizationCurrencyRateToDzd,
             Incoterm = overrides.IncotermOverride ?? originalOperation.Incoterm,
             CustomsRegimeCode = originalOperation.CustomsRegimeCode,
             // Revue du 2026-10-02 (Section 15) : les confirmations manuelles PRCT/TCS de l'opération réelle

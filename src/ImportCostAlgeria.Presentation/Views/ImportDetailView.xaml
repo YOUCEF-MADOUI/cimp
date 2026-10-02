@@ -51,69 +51,124 @@
                        Foreground="#0D47A1" FontWeight="Bold" TextWrapping="Wrap" />
         </Border>
 
-        <!-- Section 14/22 de la refonte : chaque taxe affichée SÉPARÉMENT (plus un seul total "Autres -->
-        <!-- taxes" agrégé) + nouveau TOTAL DÉDOUANEMENT. Montants en DA avec symbole directement après le -->
-        <!-- nombre (Section 6/7). La valeur en douane propose un sélecteur d'affichage DA/€/$ (Section 8) -->
-        <!-- qui ne modifie JAMAIS le calcul réglementaire (toujours en DZD en interne). -->
+        <!-- Correction 2026-10-02 (PRIORITÉ 2 — "Nouvelle présentation des résultats") : les 3 indicateurs
+             RÉGLEMENTAIRES principaux (Valeur en douane / Coût de revient / Total dédouanement) côte à
+             côte, suivis des 3 indicateurs COMMERCIAUX (Total prix de vente / Total bénéfice / % bénéfice).
+             Les résultats secondaires (DD, CS, TVA, PRCT, RPS, DAPS, Frais alloués) restent entièrement
+             calculés/disponibles dans le modèle mais sont masqués par défaut, repliés derrière le bouton
+             "Voir les détails" — aucune donnée supprimée, uniquement une amélioration de présentation. -->
         <Border DockPanel.Dock="Top" Background="#F5F7FA" Padding="10" Margin="0,0,0,8">
-            <UniformGrid Columns="4">
-                <StackPanel Margin="4">
-                    <TextBlock Text="Valeur en douane" FontWeight="Bold" />
-                    <StackPanel Orientation="Horizontal">
-                        <TextBlock Text="{Binding CustomsValueDisplayAmount, StringFormat=N2, TargetNullValue='—'}" FontSize="15" FontWeight="Bold" VerticalAlignment="Center" />
-                        <TextBlock Text="{Binding CustomsValueDisplayCurrency}" FontSize="11" Margin="3,0,8,0" VerticalAlignment="Bottom" />
-                        <ComboBox ItemsSource="{Binding CustomsValueDisplayCurrencies}" SelectedItem="{Binding CustomsValueDisplayCurrency}" Width="60" />
+            <StackPanel>
+                <UniformGrid Columns="3">
+                    <Border Margin="4" Background="#1A237E" Padding="8" CornerRadius="4">
+                        <StackPanel>
+                            <TextBlock Text="VALEUR EN DOUANE" FontWeight="Bold" Foreground="White" />
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock Text="{Binding CustomsValueDisplayAmount, StringFormat=N2, TargetNullValue='—'}" FontSize="17" FontWeight="Bold" Foreground="White" VerticalAlignment="Center" />
+                                <TextBlock Text="{Binding CustomsValueDisplayCurrency}" FontSize="11" Margin="3,0,8,0" VerticalAlignment="Bottom" Foreground="White" />
+                                <ComboBox ItemsSource="{Binding CustomsValueDisplayCurrencies}" SelectedItem="{Binding CustomsValueDisplayCurrency}" Width="60" />
+                            </StackPanel>
+                            <!-- Section 7 (correction 2026-10-02) : message explicite si la conversion d'affichage
+                                 est indisponible — jamais un simple "—" sans explication. La valeur réglementaire
+                                 en DZD ci-dessus reste, elle, toujours exacte et inchangée. -->
+                            <TextBlock Text="{Binding CustomsValueDisplayErrorFr}"
+                                       Visibility="{Binding CustomsValueDisplayErrorFr, Converter={StaticResource StringToVisibilityConverter}}"
+                                       FontSize="10" Foreground="#FFCDD2" TextWrapping="Wrap" MaxWidth="220" Margin="0,2,0,0" />
+                        </StackPanel>
+                    </Border>
+                    <Border Margin="4" Background="#1A237E" Padding="8" CornerRadius="4">
+                        <StackPanel>
+                            <TextBlock Text="COÛT DE REVIENT" FontWeight="Bold" Foreground="White" />
+                            <TextBlock Text="{Binding TotalCoutRevientDzd, Converter={StaticResource MoneyDaConverter}}" FontSize="17" FontWeight="Bold" Foreground="White" />
+                        </StackPanel>
+                    </Border>
+                    <Border Margin="4" Background="#1A237E" Padding="8" CornerRadius="4">
+                        <StackPanel>
+                            <TextBlock Text="TOTAL DÉDOUANEMENT" FontWeight="Bold" Foreground="White" />
+                            <TextBlock Text="{Binding TotalDedouanementDzd, Converter={StaticResource MoneyDaConverter}}" FontSize="17" FontWeight="Bold" Foreground="White" />
+                        </StackPanel>
+                    </Border>
+                </UniformGrid>
+
+                <!-- Section "Calcul du prix de vente / bénéfice" : indicateurs COMMERCIAUX, calculés
+                     exclusivement à partir des prix de vente réellement saisis (jamais le coût de revient
+                     utilisé comme prix de vente) — voir ImportDetailViewModel.RecomputeCommercialTotals. -->
+                <UniformGrid Columns="3" Margin="0,8,0,0">
+                    <Border Margin="4" Background="White" BorderBrush="#C5CAE9" BorderThickness="1" Padding="8" CornerRadius="4">
+                        <StackPanel>
+                            <TextBlock Text="TOTAL PRIX DE VENTE" FontWeight="Bold" />
+                            <TextBlock Text="{Binding TotalPrixVenteDzd, Converter={StaticResource MoneyDaConverter}}" FontSize="15" />
+                        </StackPanel>
+                    </Border>
+                    <Border Margin="4" Background="White" BorderBrush="#C5CAE9" BorderThickness="1" Padding="8" CornerRadius="4">
+                        <StackPanel>
+                            <TextBlock Text="TOTAL BÉNÉFICE" FontWeight="Bold" />
+                            <TextBlock Text="{Binding TotalBeneficeDzd, Converter={StaticResource MoneyDaConverter}}" FontSize="15" />
+                        </StackPanel>
+                    </Border>
+                    <Border Margin="4" Background="White" BorderBrush="#C5CAE9" BorderThickness="1" Padding="8" CornerRadius="4">
+                        <StackPanel>
+                            <TextBlock Text="MARGE / % BÉNÉFICE" FontWeight="Bold" />
+                            <TextBlock Text="{Binding PourcentageBeneficeDisplayFr}" FontSize="15" />
+                        </StackPanel>
+                    </Border>
+                </UniformGrid>
+
+                <!-- Bouton "Voir les détails" (même motif que ToggleAnomalyDetailsCommand ci-dessous, Section
+                     "Notifications") : masque/affiche DD, CS, TVA, PRCT, RPS, DAPS, Frais alloués — aucune
+                     donnée supprimée du modèle, uniquement repliée par défaut. -->
+                <Button HorizontalAlignment="Left" Margin="4,8,0,0" Padding="8,4" Command="{Binding ToggleResultsBreakdownCommand}">
+                    <TextBlock>
+                        <TextBlock.Style>
+                            <Style TargetType="TextBlock">
+                                <Setter Property="Text" Value="Voir les détails ▼" />
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding ShowResultsBreakdown}" Value="True">
+                                        <Setter Property="Text" Value="Masquer les détails ▲" />
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </TextBlock.Style>
+                    </TextBlock>
+                </Button>
+
+                <UniformGrid Columns="4" Margin="0,8,0,0" Visibility="{Binding ShowResultsBreakdown, Converter={StaticResource BoolToVisibilityConverter}}">
+                    <StackPanel Margin="4">
+                        <TextBlock Text="Droits de douane (DD)" FontWeight="Bold" />
+                        <TextBlock Text="{Binding TotalDroitsDouaneDzd, Converter={StaticResource MoneyDaConverter}}" FontSize="15" />
                     </StackPanel>
-                    <!-- Section 7 (correction 2026-10-02) : message explicite si la conversion d'affichage
-                         est indisponible — jamais un simple "—" sans explication. La valeur réglementaire
-                         en DZD ci-dessus reste, elle, toujours exacte et inchangée. -->
-                    <TextBlock Text="{Binding CustomsValueDisplayErrorFr}"
-                               Visibility="{Binding CustomsValueDisplayErrorFr, Converter={StaticResource StringToVisibilityConverter}}"
-                               FontSize="10" Foreground="#B00020" TextWrapping="Wrap" MaxWidth="220" Margin="0,2,0,0" />
-                </StackPanel>
-                <StackPanel Margin="4">
-                    <TextBlock Text="Droits de douane (DD)" FontWeight="Bold" />
-                    <TextBlock Text="{Binding TotalDroitsDouaneDzd, Converter={StaticResource MoneyDaConverter}}" FontSize="15" />
-                </StackPanel>
-                <StackPanel Margin="4">
-                    <TextBlock Text="CS" FontWeight="Bold" />
-                    <TextBlock Text="{Binding TotalCsDzd, Converter={StaticResource MoneyDaConverter}}" FontSize="15" />
-                </StackPanel>
-                <StackPanel Margin="4">
-                    <TextBlock Text="TVA" FontWeight="Bold" />
-                    <TextBlock Text="{Binding TotalTvaDzd, Converter={StaticResource MoneyDaConverter}}" FontSize="15" />
-                </StackPanel>
-                <!-- Correction 2026-10-02 (demande utilisateur — ambiguïté CS/TCS) : la ligne "TCS" du
-                     bandeau est RETIRÉE de l'affichage (CS reste la seule taxe de ce type présentée à
-                     l'utilisateur, conformément à la décision explicite prise pour cette correction). Le
-                     calcul/total interne du TCS (TotalTcsDzd, moteur réglementaire, TOTAL DÉDOUANEMENT)
-                     reste intégralement conservé — rien n'est supprimé du modèle ni du moteur, seule cette
-                     ligne d'affichage disparaît pour lever l'ambiguïté visuelle CS/TCS signalée. -->
-                <StackPanel Margin="4">
-                    <TextBlock Text="PRCT" FontWeight="Bold" />
-                    <TextBlock Text="{Binding TotalPrctDzd, Converter={StaticResource MoneyDaConverter}}" FontSize="15" />
-                </StackPanel>
-                <StackPanel Margin="4">
-                    <TextBlock Text="DAPS" FontWeight="Bold" />
-                    <TextBlock Text="{Binding TotalDapsDzd, Converter={StaticResource MoneyDaConverter}}" FontSize="15" />
-                </StackPanel>
-                <StackPanel Margin="4">
-                    <TextBlock Text="RPS" FontWeight="Bold" />
-                    <TextBlock Text="{Binding TotalRpsDzd, Converter={StaticResource MoneyDaConverter}}" FontSize="15" />
-                </StackPanel>
-                <StackPanel Margin="4" Background="#E8EAF6">
-                    <TextBlock Text="TOTAL DÉDOUANEMENT" FontWeight="Bold" />
-                    <TextBlock Text="{Binding TotalDedouanementDzd, Converter={StaticResource MoneyDaConverter}}" FontSize="16" FontWeight="Bold" />
-                </StackPanel>
-                <StackPanel Margin="4">
-                    <TextBlock Text="Frais alloués" FontWeight="Bold" />
-                    <TextBlock Text="{Binding TotalFraisDzd, Converter={StaticResource MoneyDaConverter}}" FontSize="15" />
-                </StackPanel>
-                <StackPanel Margin="4" Background="#1A237E">
-                    <TextBlock Text="COÛT DE REVIENT TOTAL" FontWeight="Bold" Foreground="White" />
-                    <TextBlock Text="{Binding TotalCoutRevientDzd, Converter={StaticResource MoneyDaConverter}}" FontSize="16" FontWeight="Bold" Foreground="White" />
-                </StackPanel>
-            </UniformGrid>
+                    <StackPanel Margin="4">
+                        <TextBlock Text="CS" FontWeight="Bold" />
+                        <TextBlock Text="{Binding TotalCsDzd, Converter={StaticResource MoneyDaConverter}}" FontSize="15" />
+                    </StackPanel>
+                    <StackPanel Margin="4">
+                        <TextBlock Text="TVA" FontWeight="Bold" />
+                        <TextBlock Text="{Binding TotalTvaDzd, Converter={StaticResource MoneyDaConverter}}" FontSize="15" />
+                    </StackPanel>
+                    <!-- Correction 2026-10-02 (demande utilisateur — ambiguïté CS/TCS) : la ligne "TCS" du
+                         bandeau est RETIRÉE de l'affichage (CS reste la seule taxe de ce type présentée à
+                         l'utilisateur, conformément à la décision explicite prise pour cette correction). Le
+                         calcul/total interne du TCS (TotalTcsDzd, moteur réglementaire, TOTAL DÉDOUANEMENT)
+                         reste intégralement conservé — rien n'est supprimé du modèle ni du moteur, seule cette
+                         ligne d'affichage disparaît pour lever l'ambiguïté visuelle CS/TCS signalée. -->
+                    <StackPanel Margin="4">
+                        <TextBlock Text="PRCT" FontWeight="Bold" />
+                        <TextBlock Text="{Binding TotalPrctDzd, Converter={StaticResource MoneyDaConverter}}" FontSize="15" />
+                    </StackPanel>
+                    <StackPanel Margin="4">
+                        <TextBlock Text="DAPS" FontWeight="Bold" />
+                        <TextBlock Text="{Binding TotalDapsDzd, Converter={StaticResource MoneyDaConverter}}" FontSize="15" />
+                    </StackPanel>
+                    <StackPanel Margin="4">
+                        <TextBlock Text="RPS" FontWeight="Bold" />
+                        <TextBlock Text="{Binding TotalRpsDzd, Converter={StaticResource MoneyDaConverter}}" FontSize="15" />
+                    </StackPanel>
+                    <StackPanel Margin="4">
+                        <TextBlock Text="Frais alloués" FontWeight="Bold" />
+                        <TextBlock Text="{Binding TotalFraisDzd, Converter={StaticResource MoneyDaConverter}}" FontSize="15" />
+                    </StackPanel>
+                </UniformGrid>
+            </StackPanel>
         </Border>
 
         <TabControl>
@@ -285,13 +340,29 @@
                                  (aucun impact sur la logique de calcul), mais l'AFFICHAGE — cellule en lecture
                                  comme items du menu déroulant — passe par FeeAllocationMethodToFrenchConverter
                                  pour ne jamais montrer de texte anglais brut ("ByValue", "FixedAmount"...). -->
+                            <!-- Correction 2026-10-02 (PRIORITÉ 0 — crash "Frais") : DataGridComboBoxColumn génère en
+                                 mode "affichage" (hors édition) un élément interne nommé TextBlockComboBox, qui
+                                 est en réalité une sous-classe de ComboBox (et non de TextBlock, malgré son nom).
+                                 Un Style TargetType="TextBlock" provoquait donc systématiquement
+                                 InvalidOperationException ("Le TargetType 'TextBlock' ne correspond pas au type
+                                 de l'élément 'TextBlockComboBox'") dès l'ouverture de l'onglet "Frais". Corrigé en
+                                 ciblant ComboBox (comme pour EditingElementStyle ci-dessous) et en pilotant le
+                                 texte affiché via ItemTemplate (jamais via un Setter "Text", non applicable à un
+                                 ComboBox non éditable) — l'affichage ET l'édition utilisent ainsi exactement le
+                                 même modèle visuel (toujours le libellé français, jamais la valeur anglaise brute
+                                 de l'énumération). -->
                             <DataGridComboBoxColumn Header="Méthode de répartition" SelectedItemBinding="{Binding AllocationMethod}" Width="150"
                                                      ItemsSource="{x:Static core:ImportFeeCatalog.AllocationMethodsForV1}">
                                 <DataGridComboBoxColumn.ElementStyle>
-                                    <Style TargetType="TextBlock">
-                                        <Setter Property="Text" Value="{Binding AllocationMethod, Converter={StaticResource FeeAllocationMethodToFrenchConverter}}" />
-                                        <Setter Property="VerticalAlignment" Value="Center" />
-                                        <Setter Property="Margin" Value="4,0,0,0" />
+                                    <Style TargetType="ComboBox">
+                                        <Setter Property="ItemTemplate">
+                                            <Setter.Value>
+                                                <DataTemplate>
+                                                    <TextBlock Text="{Binding Converter={StaticResource FeeAllocationMethodToFrenchConverter}}"
+                                                               VerticalAlignment="Center" Margin="4,0,0,0" />
+                                                </DataTemplate>
+                                            </Setter.Value>
+                                        </Setter>
                                     </Style>
                                 </DataGridComboBoxColumn.ElementStyle>
                                 <DataGridComboBoxColumn.EditingElementStyle>
@@ -358,6 +429,69 @@
                     <TextBlock Text="{Binding AuthorizationExchangeRateInfo}" TextWrapping="Wrap" Margin="0,4,0,4" FontStyle="Italic" />
 
                     <TextBlock Text="{Binding AuthorizationConversionSummary}" FontWeight="Bold" TextWrapping="Wrap" Margin="0,0,0,16" />
+
+                    <Separator Margin="0,4,0,12" />
+
+                    <!-- PRIORITÉ 3 (demande utilisateur 2026-10-02) — "Simulation du taux de change" :
+                         entièrement virtuelle/lecture seule (ImportSimulatorService, clone isolé en mémoire) —
+                         ne modifie JAMAIS l'importation réelle, les lignes, les frais ni le prix de vente. -->
+                    <TextBlock Text="Simulation de variation du taux de change" FontWeight="Bold" FontSize="14" Margin="0,0,0,4" />
+                    <TextBlock Text="Prévoyez l'impact d'une hausse ou d'une baisse future du taux de change sur cette importation, sans rien modifier de réel. Les points ci-dessous sont des DA ajoutés ou retranchés au taux actuel (jamais un pourcentage)."
+                               TextWrapping="Wrap" FontSize="11" Foreground="Gray" Margin="0,0,0,6" />
+
+                    <StackPanel Visibility="{Binding SimulationAvailable, Converter={StaticResource BoolToVisibilityConverter}}">
+                        <TextBlock Text="{Binding SimulationCurrentRateLabelFr}" FontWeight="Bold" />
+                        <TextBlock Text="{Binding SimulationSimulatedRateLabelFr}" Margin="0,0,0,6" />
+
+                        <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
+                            <Button Content="-5" Width="36" Command="{Binding SetSimulationDeltaCommand}" CommandParameter="-5" />
+                            <Button Content="-4" Width="36" Command="{Binding SetSimulationDeltaCommand}" CommandParameter="-4" />
+                            <Button Content="-3" Width="36" Command="{Binding SetSimulationDeltaCommand}" CommandParameter="-3" />
+                            <Button Content="-2" Width="36" Command="{Binding SetSimulationDeltaCommand}" CommandParameter="-2" />
+                            <Button Content="-1" Width="36" Command="{Binding SetSimulationDeltaCommand}" CommandParameter="-1" />
+                            <Button Content="0" Width="36" FontWeight="Bold" Command="{Binding SetSimulationDeltaCommand}" CommandParameter="0" />
+                            <Button Content="+1" Width="36" Command="{Binding SetSimulationDeltaCommand}" CommandParameter="1" />
+                            <Button Content="+2" Width="36" Command="{Binding SetSimulationDeltaCommand}" CommandParameter="2" />
+                            <Button Content="+3" Width="36" Command="{Binding SetSimulationDeltaCommand}" CommandParameter="3" />
+                            <Button Content="+4" Width="36" Command="{Binding SetSimulationDeltaCommand}" CommandParameter="4" />
+                            <Button Content="+5" Width="36" Command="{Binding SetSimulationDeltaCommand}" CommandParameter="5" />
+                        </StackPanel>
+
+                        <!-- Tableau du scénario simulé — jamais enregistré, jamais utilisé pour le calcul réel. -->
+                        <Border BorderBrush="#C5CAE9" BorderThickness="1" Padding="8" Background="#F5F7FA">
+                            <UniformGrid Columns="3">
+                                <StackPanel Margin="4">
+                                    <TextBlock Text="Valeur en douane (simulée)" FontWeight="Bold" />
+                                    <TextBlock Text="{Binding SimulationValeurDouaneDzd, Converter={StaticResource MoneyDaConverter}}" FontSize="15" />
+                                </StackPanel>
+                                <StackPanel Margin="4">
+                                    <TextBlock Text="Total dédouanement (simulé)" FontWeight="Bold" />
+                                    <TextBlock Text="{Binding SimulationTotalDedouanementDzd, Converter={StaticResource MoneyDaConverter}}" FontSize="15" />
+                                </StackPanel>
+                                <StackPanel Margin="4">
+                                    <TextBlock Text="Coût de revient (simulé)" FontWeight="Bold" />
+                                    <TextBlock Text="{Binding SimulationCoutRevientDzd, Converter={StaticResource MoneyDaConverter}}" FontSize="15" />
+                                </StackPanel>
+                                <StackPanel Margin="4">
+                                    <TextBlock Text="Prix de vente (inchangé)" FontWeight="Bold" />
+                                    <TextBlock Text="{Binding SimulationTotalPrixVenteDzd, Converter={StaticResource MoneyDaConverter}}" FontSize="15" />
+                                </StackPanel>
+                                <StackPanel Margin="4">
+                                    <TextBlock Text="Bénéfice (simulé)" FontWeight="Bold" />
+                                    <TextBlock Text="{Binding SimulationBeneficeDzd, Converter={StaticResource MoneyDaConverter}}" FontSize="15" />
+                                </StackPanel>
+                                <StackPanel Margin="4">
+                                    <TextBlock Text="% Bénéfice (simulé)" FontWeight="Bold" />
+                                    <TextBlock Text="{Binding SimulationPourcentageBeneficeDisplayFr}" FontSize="15" />
+                                </StackPanel>
+                            </UniformGrid>
+                        </Border>
+                    </StackPanel>
+                    <TextBlock Text="{Binding SimulationCurrentRateLabelFr}"
+                               Visibility="{Binding SimulationAvailable, Converter={StaticResource InverseBoolToVisibilityConverter}}"
+                               TextWrapping="Wrap" Foreground="#B00020" Margin="0,0,0,12" />
+
+                    <Separator Margin="0,4,0,12" />
 
                     <TextBlock Text="Recommandations liées à l'Incoterm" FontWeight="Bold" FontSize="14" Margin="0,0,0,4" />
                     <TextBlock Text="{Binding IncotermGuidance}" TextWrapping="Wrap" />
