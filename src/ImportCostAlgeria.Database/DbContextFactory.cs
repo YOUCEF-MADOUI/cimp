@@ -172,6 +172,11 @@ public static class DbContextFactory
             AddColumnIfMissing(connection, "ImportOperations", "DefaultTvaRatePercent", "TEXT NOT NULL DEFAULT '19.0'");
             AddColumnIfMissing(connection, "ImportOperations", "DefaultTcsRatePercent", "TEXT NOT NULL DEFAULT '0'");
             AddColumnIfMissing(connection, "ImportOperations", "DefaultRpsAmountDzd", "TEXT NOT NULL DEFAULT '0'");
+
+            // Revue du 2026-10-02 (REFONTE INTERFACE, Section 15) : prix de vente unitaire en DA, colonne
+            // NULLABLE — une base déjà déployée reste parfaitement utilisable sans elle (aucun bénéfice
+            // affiché tant que l'utilisateur n'a rien saisi, jamais une valeur inventée).
+            AddColumnIfMissing(connection, "ImportLines", "SalePriceDzd", "TEXT NULL");
         }
         finally
         {

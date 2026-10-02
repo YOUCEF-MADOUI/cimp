@@ -458,6 +458,14 @@ public sealed class ImportLine
     public string? VatExemptionReasonFr { get; set; }
     public decimal? LineGrossWeightKg { get; set; }
     public decimal? LineVolumeM3 { get; set; }
+    /// <summary>
+    /// Revue du 2026-10-02 (REFONTE INTERFACE — Section 15/16/17) : prix de vente unitaire saisi par
+    /// l'utilisateur, EXPRIMÉ EN DA (DZD), utilisé UNIQUEMENT pour calculer le bénéfice/marge d'affichage
+    /// (<c>Bénéfice = Prix de vente - PU Reviens</c>, <c>% Bénéfice = Bénéfice / PU Reviens × 100</c>).
+    /// Ne participe JAMAIS au calcul douanier/fiscal (valeur en douane, droits, taxes, coût de revient) :
+    /// strictement une donnée commerciale a posteriori, purement informative pour l'utilisateur.
+    /// </summary>
+    public decimal? SalePriceDzd { get; set; }
     public Dictionary<Guid, decimal> ManualFeeAllocationsDzd { get; init; } = new();
 }
 

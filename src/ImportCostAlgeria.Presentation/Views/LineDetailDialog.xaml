@@ -15,9 +15,9 @@
                     <ColumnDefinition Width="*" />
                 </Grid.ColumnDefinitions>
                 <StackPanel Grid.Column="0">
-                    <TextBlock><Run Text="Valeur en douane : " FontWeight="Bold" /><Run Text="{Binding Result.CustomsOutcome.CustomsValueDzd, Mode=OneWay, StringFormat={}{0:N2} DZD}" /></TextBlock>
+                    <TextBlock><Run Text="Valeur en douane : " FontWeight="Bold" /><Run Text="{Binding Result.CustomsOutcome.CustomsValueDzd, Mode=OneWay, StringFormat={}{0:N2} DA}" /></TextBlock>
                     <TextBlock><Run Text="Taux de droit de douane appliqué : " FontWeight="Bold" /><Run Text="{Binding Result.CustomsOutcome.CustomsDutyRatePercent, Mode=OneWay, StringFormat={}{0:N2} %}" /></TextBlock>
-                    <TextBlock><Run Text="Montant du droit de douane : " FontWeight="Bold" /><Run Text="{Binding Result.CustomsOutcome.CustomsDutyAmountDzd, Mode=OneWay, StringFormat={}{0:N2} DZD}" /></TextBlock>
+                    <TextBlock><Run Text="Montant du droit de douane : " FontWeight="Bold" /><Run Text="{Binding Result.CustomsOutcome.CustomsDutyAmountDzd, Mode=OneWay, StringFormat={}{0:N2} DA}" /></TextBlock>
                 </StackPanel>
                 <StackPanel Grid.Column="1">
                     <TextBlock Text="{Binding ComparaisonDroitExcelVsReglementaire}" TextWrapping="Wrap" Foreground="DarkBlue" />
@@ -36,8 +36,8 @@
                 <DataGrid.Columns>
                     <DataGridTextColumn Header="Taxe" Binding="{Binding TaxNameFr}" Width="220" />
                     <DataGridTextColumn Header="Statut" Binding="{Binding StatusLabelFr}" Width="260" />
-                    <DataGridTextColumn Header="Base taxable DZD" Binding="{Binding TaxableBaseDzd, StringFormat=N2}" Width="120" />
-                    <DataGridTextColumn Header="Montant DZD" Binding="{Binding TaxAmountDzd, StringFormat=N2}" Width="110" />
+                    <DataGridTextColumn Header="Base taxable DA" Binding="{Binding TaxableBaseDzd, StringFormat=N2}" Width="120" />
+                    <DataGridTextColumn Header="Montant DA" Binding="{Binding TaxAmountDzd, StringFormat=N2}" Width="110" />
                     <DataGridTextColumn Header="Version réglementaire" Binding="{Binding RegulatoryVersionCode}" Width="140" />
                 </DataGrid.Columns>
             </DataGrid>
@@ -48,7 +48,7 @@
                     <DataGridTextColumn Header="Taxe" Binding="{Binding TaxNameFr}" Width="140" />
                     <DataGridTextColumn Header="Base taxable" Binding="{Binding TaxableBaseDzd, StringFormat=N2}" Width="110" />
                     <DataGridTextColumn Header="Taux %" Binding="{Binding RatePercent, StringFormat=N2}" Width="70" />
-                    <DataGridTextColumn Header="Montant DZD" Binding="{Binding TaxAmountDzd, StringFormat=N2}" Width="110" />
+                    <DataGridTextColumn Header="Montant DA" Binding="{Binding TaxAmountDzd, StringFormat=N2}" Width="110" />
                     <DataGridTextColumn Header="Non récupérable" Binding="{Binding IsNonRecoverable}" Width="110" />
                     <DataGridTextColumn Header="Article de loi" Binding="{Binding LegalArticleReference}" Width="140" />
                     <DataGridTextColumn Header="JORA" Binding="{Binding JoraReference}" Width="110" />
@@ -59,7 +59,7 @@
                 <Run Text="TVA à l'importation : " FontWeight="Bold" />
                 <Run Text="{Binding TvaStatutFr, Mode=OneWay}" />
                 <Run Text=" — " />
-                <Run Text="{Binding Result.CustomsOutcome.ImportVatAmountDzd, Mode=OneWay, StringFormat={}{0:N2} DZD}" />
+                <Run Text="{Binding Result.CustomsOutcome.ImportVatAmountDzd, Mode=OneWay, StringFormat={}{0:N2} DA}" />
             </TextBlock>
 
             <TextBlock Text="3. Frais alloués à cet article" FontSize="14" FontWeight="Bold" Margin="0,16,0,4" />
@@ -68,17 +68,17 @@
                     <DataGridTextColumn Header="Frais" Binding="{Binding FeeName}" Width="160" />
                     <DataGridTextColumn Header="Méthode de répartition" Binding="{Binding MethodUsed}" Width="140" />
                     <DataGridTextColumn Header="Quote-part" Binding="{Binding ShareRatio, StringFormat=P2}" Width="90" />
-                    <DataGridTextColumn Header="Montant alloué DZD" Binding="{Binding AllocatedAmountDzd, StringFormat=N2}" Width="130" />
+                    <DataGridTextColumn Header="Montant alloué DA" Binding="{Binding AllocatedAmountDzd, StringFormat=N2}" Width="130" />
                     <DataGridTextColumn Header="Inclus valeur en douane" Binding="{Binding IncludedInCustomsValue}" Width="130" />
                     <DataGridTextColumn Header="Inclus coût de revient" Binding="{Binding IncludedInCostOfGoods}" Width="130" />
                 </DataGrid.Columns>
             </DataGrid>
 
             <TextBlock Text="4. Coût de revient économique réel (distinct de la valeur en douane)" FontSize="14" FontWeight="Bold" Margin="0,16,0,4" />
-            <TextBlock><Run Text="Coût d'acquisition HT : " FontWeight="Bold" /><Run Text="{Binding Result.EconomicOutcome.AcquisitionCostExVatDzd, Mode=OneWay, StringFormat={}{0:N2} DZD}" /></TextBlock>
-            <TextBlock><Run Text="TVA / taxes non récupérables incluses : " FontWeight="Bold" /><Run Text="{Binding Result.EconomicOutcome.NonRecoverableImportVatDzd, Mode=OneWay, StringFormat={}{0:N2} DZD}" /></TextBlock>
-            <TextBlock FontSize="16" Margin="0,8,0,0"><Run Text="Coût de revient total : " FontWeight="Bold" /><Run Text="{Binding Result.EconomicOutcome.RealCostOfGoodsTotalDzd, Mode=OneWay, StringFormat={}{0:N2} DZD}" FontWeight="Bold" /></TextBlock>
-            <TextBlock FontSize="16"><Run Text="Coût unitaire de revient : " FontWeight="Bold" /><Run Text="{Binding Result.EconomicOutcome.UnitCostOfGoodsDzd, Mode=OneWay, StringFormat={}{0:N2} DZD}" FontWeight="Bold" /></TextBlock>
+            <TextBlock><Run Text="Coût d'acquisition HT : " FontWeight="Bold" /><Run Text="{Binding Result.EconomicOutcome.AcquisitionCostExVatDzd, Mode=OneWay, StringFormat={}{0:N2} DA}" /></TextBlock>
+            <TextBlock><Run Text="TVA / taxes non récupérables incluses : " FontWeight="Bold" /><Run Text="{Binding Result.EconomicOutcome.NonRecoverableImportVatDzd, Mode=OneWay, StringFormat={}{0:N2} DA}" /></TextBlock>
+            <TextBlock FontSize="16" Margin="0,8,0,0"><Run Text="Coût de revient total : " FontWeight="Bold" /><Run Text="{Binding Result.EconomicOutcome.RealCostOfGoodsTotalDzd, Mode=OneWay, StringFormat={}{0:N2} DA}" FontWeight="Bold" /></TextBlock>
+            <TextBlock FontSize="16"><Run Text="PU Reviens (coût unitaire de revient) : " FontWeight="Bold" /><Run Text="{Binding Result.EconomicOutcome.UnitCostOfGoodsDzd, Mode=OneWay, StringFormat={}{0:N2} DA}" FontWeight="Bold" /></TextBlock>
 
             <TextBlock Text="5. Contrôles / anomalies concernant cet article" FontSize="14" FontWeight="Bold" Margin="0,16,0,4" />
             <ItemsControl ItemsSource="{Binding Anomalies}">

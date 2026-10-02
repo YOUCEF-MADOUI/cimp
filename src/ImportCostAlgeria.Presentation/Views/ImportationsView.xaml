@@ -23,59 +23,72 @@
             </DataGrid>
         </DockPanel>
 
-        <Border Grid.Column="1" BorderBrush="#DDD" BorderThickness="1" Padding="16"
-                Visibility="{Binding Selected, Converter={StaticResource NullToVisibilityConverter}}">
-            <ScrollViewer VerticalScrollBarVisibility="Auto">
-            <StackPanel DataContext="{Binding Selected}">
-                <TextBlock Text="Fiche importation" FontSize="16" FontWeight="Bold" Margin="0,0,0,12" />
-
-                <Label Content="N° d'importation" />
-                <TextBox Text="{Binding ImportNumber, UpdateSourceTrigger=PropertyChanged}" />
-
-                <Label Content="Date de référence" />
-                <DatePicker SelectedDate="{Binding ReferenceDate, Converter={StaticResource DateOnlyConverter}}" Margin="4" />
-
-                <Label Content="Fournisseur" />
-                <TextBox Text="{Binding SupplierName, UpdateSourceTrigger=PropertyChanged}" />
-
-                <Label Content="Pays d'achat (pays du fournisseur/facture, optionnel)" />
-                <controls:CountrySearchBox SelectedIso2="{Binding PurchaseCountryIso2}"
-                                            Watermark="Rechercher le pays d'achat (ex : por -&gt; Portugal)..." />
-
-                <Label Content="Pays de provenance / premier destin (expédition)" />
-                <controls:CountrySearchBox SelectedIso2="{Binding ExportShippingCountryIso2}"
-                                            Watermark="Rechercher le pays d'expédition (ex : chi -&gt; Chine, tur -&gt; Turquie)..." />
-
-                <Label Content="Pays d'origine de la marchandise par défaut (optionnel — distinct du pays d'achat)" />
-                <controls:CountrySearchBox SelectedIso2="{Binding DefaultOriginCountryIso2}"
-                                            Watermark="Rechercher le pays d'origine (ex : alg -&gt; Algérie, fra -&gt; France)..." />
-
-                <Label Content="Devise principale" />
-                <TextBox Text="{Binding MainCurrencyCode, UpdateSourceTrigger=PropertyChanged}" MaxLength="3" />
-
-                <Label Content="Incoterm (V1 : EXW / FOB / CFR)" />
-                <ComboBox ItemsSource="{Binding DataContext.IncotermsV1, RelativeSource={RelativeSource AncestorType=UserControl}}"
-                          SelectedItem="{Binding Incoterm}" />
-
-                <Label Content="Port / frontière d'arrivée" />
-                <TextBox Text="{Binding ArrivalPortOrBorder, UpdateSourceTrigger=PropertyChanged}" />
-
-                <Label Content="Mode de transport" />
-                <TextBox Text="{Binding TransportMode, UpdateSourceTrigger=PropertyChanged}" />
-
-                <Label Content="Taux de change manuel (optionnel — ⚠️ déclenche une alerte si différent du taux officiel)" />
-                <TextBox Text="{Binding ManualExchangeRateOverride, UpdateSourceTrigger=LostFocus, Converter={StaticResource FlexibleDecimalConverter}}" />
-
-                <StackPanel Orientation="Horizontal" Margin="0,16,0,0">
-                    <Button Content="Enregistrer"
-                            Command="{Binding DataContext.SaveCommand, RelativeSource={RelativeSource AncestorType=UserControl}}" />
-                    <Button Content="Ouvrir (lignes, calcul, exports)"
-                            Command="{Binding DataContext.OpenCommand, RelativeSource={RelativeSource AncestorType=UserControl}}" />
-                    <Button Content="Supprimer"
-                            Command="{Binding DataContext.DeleteCommand, RelativeSource={RelativeSource AncestorType=UserControl}}" />
+        <DockPanel Grid.Column="1"
+                   Visibility="{Binding Selected, Converter={StaticResource NullToVisibilityConverter}}">
+            <!--
+            Revue du 2026-10-02 (REFONTE INTERFACE — Section 4) : barre d'action FIXE (Enregistrer / Ouvrir /
+            Supprimer), désormais DockPanel.Dock="Top" HORS du ScrollViewer ci-dessous — elle ne défile donc
+            plus jamais avec le reste du formulaire, contrairement à l'ancien emplacement (bas de la fiche,
+            à l'intérieur du conteneur défilant).
+            -->
+            <Border DockPanel.Dock="Top" Background="#F5F7FA" Padding="8" Margin="0,0,0,8">
+                <StackPanel Orientation="Horizontal">
+                    <Button Content="Enregistrer" Command="{Binding SaveCommand}" FontWeight="Bold" />
+                    <Button Content="Ouvrir (lignes, calcul, exports)" Command="{Binding OpenCommand}" />
+                    <Button Content="Supprimer" Command="{Binding DeleteCommand}" />
                 </StackPanel>
-            </StackPanel>
-            </ScrollViewer>
-        </Border>
+            </Border>
+
+            <Border BorderBrush="#DDD" BorderThickness="1" Padding="16">
+                <ScrollViewer VerticalScrollBarVisibility="Auto">
+                <StackPanel DataContext="{Binding Selected}">
+                    <TextBlock Text="Fiche importation" FontSize="16" FontWeight="Bold" Margin="0,0,0,12" />
+
+                    <Label Content="N° d'importation" />
+                    <TextBox Text="{Binding ImportNumber, UpdateSourceTrigger=PropertyChanged}" />
+
+                    <Label Content="Date de référence" />
+                    <DatePicker SelectedDate="{Binding ReferenceDate, Converter={StaticResource DateOnlyConverter}}" Margin="4" />
+
+                    <Label Content="Fournisseur" />
+                    <TextBox Text="{Binding SupplierName, UpdateSourceTrigger=PropertyChanged}" />
+
+                    <Label Content="Pays d'achat (pays du fournisseur/facture, optionnel)" />
+                    <controls:CountrySearchBox SelectedIso2="{Binding PurchaseCountryIso2}"
+                                                Watermark="Rechercher le pays d'achat (ex : por -&gt; Portugal)..." />
+
+                    <Label Content="Pays de provenance / premier destin (expédition)" />
+                    <controls:CountrySearchBox SelectedIso2="{Binding ExportShippingCountryIso2}"
+                                                Watermark="Rechercher le pays d'expédition (ex : chi -&gt; Chine, tur -&gt; Turquie)..." />
+
+                    <Label Content="Pays d'origine de la marchandise par défaut (optionnel — distinct du pays d'achat)" />
+                    <controls:CountrySearchBox SelectedIso2="{Binding DefaultOriginCountryIso2}"
+                                                Watermark="Rechercher le pays d'origine (ex : alg -&gt; Algérie, fra -&gt; France)..." />
+
+                    <Label Content="Devise principale (facture)" />
+                    <TextBox Text="{Binding MainCurrencyCode, UpdateSourceTrigger=PropertyChanged}" MaxLength="3" />
+
+                    <Label Content="Devise de l'autorisation d'importation (conversion commerciale, distincte du calcul douanier)" />
+                    <TextBox Text="{Binding AuthorizationCurrencyCode, UpdateSourceTrigger=PropertyChanged}" MaxLength="3" />
+
+                    <Label Content="Incoterm (V1 : EXW / FOB / CFR)" />
+                    <ComboBox ItemsSource="{Binding DataContext.IncotermsV1, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                              SelectedItem="{Binding Incoterm}" />
+
+                    <Label Content="Port / frontière d'arrivée" />
+                    <TextBox Text="{Binding ArrivalPortOrBorder, UpdateSourceTrigger=PropertyChanged}" />
+
+                    <Label Content="Mode de transport" />
+                    <TextBox Text="{Binding TransportMode, UpdateSourceTrigger=PropertyChanged}" />
+
+                    <Label Content="Taux de change manuel (optionnel — ⚠️ déclenche une alerte si différent du taux officiel)" />
+                    <TextBox Text="{Binding ManualExchangeRateOverride, UpdateSourceTrigger=LostFocus, Converter={StaticResource FlexibleDecimalConverter}}" />
+
+                    <TextBlock TextWrapping="Wrap" Foreground="#555" Margin="4,16,4,0"
+                               Text="Les taux de taxes par défaut (CS/PRCT/TCS/TVA/DD/RPS) et la configuration détaillée des articles/frais se gèrent depuis « Ouvrir (lignes, calcul, exports) » ci-dessus." />
+                </StackPanel>
+                </ScrollViewer>
+            </Border>
+        </DockPanel>
     </Grid>
 </UserControl>

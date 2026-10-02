@@ -3,8 +3,69 @@ using System.Globalization;
 using System.Windows;
 using System.Windows.Data;
 using System.Windows.Media;
+using ImportCostAlgeria.Core.Services;
 
 namespace ImportCostAlgeria.Presentation.Converters;
+
+/// <summary>
+/// Revue du 2026-10-02 (REFONTE INTERFACE — Section 6/7/13) : convertit un montant <see cref="decimal"/>
+/// (ou <see cref="decimal"/>?) en texte affichant le symbole de devise APRÈS le nombre (ex : "2 500,00 DA",
+/// "319,56 $"), via <see cref="CurrencyDisplay"/> (seule source de vérité du mapping code -&gt; symbole).
+/// Le <c>ConverterParameter</c> fournit le code devise FIXE lorsque la colonne entière utilise toujours la
+/// même devise (ex : "DZD" pour un total en DA) — pour une devise qui varie ligne par ligne (ex : prix
+/// d'achat dans la devise propre à chaque article), utiliser <see cref="MoneyWithDynamicCurrencyConverter"/>
+/// (MultiBinding montant + code devise de la ligne).
+/// </summary>
+public sealed class MoneyWithFixedCurrencyConverter : IValueConverter
+{
+    public object Convert(object? value, Type targetType, object parameter, CultureInfo culture)
+    {
+        string currencyCode = parameter?.ToString() ?? "DZD";
+        return value switch
+        {
+            decimal dec => CurrencyDisplay.Format(dec, currencyCode),
+            null => string.Empty,
+            _ => string.Empty
+        };
+    }
+
+    public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture) =>
+        throw new NotSupportedException();
+}
+
+/// <summary>
+/// Revue du 2026-10-02 (REFONTE INTERFACE — Section 7/13) : variante MultiBinding de
+/// <see cref="MoneyWithFixedCurrencyConverter"/> pour les colonnes où la devise varie par ligne (ex :
+/// "Prix achat" dans le tableau des articles — chaque article peut avoir sa propre devise de facturation).
+/// Attend exactement deux valeurs liées : [0] = montant (decimal/decimal?), [1] = code devise (string).
+/// </summary>
+public sealed class MoneyWithDynamicCurrencyConverter : IMultiValueConverter
+{
+    public object Convert(object?[] values, Type targetType, object parameter, CultureInfo culture)
+    {
+        if (values.Length < 2) return string.Empty;
+        string? currencyCode = values[1] as string;
+        return values[0] switch
+        {
+            decimal dec => CurrencyDisplay.Format(dec, currencyCode),
+            null => string.Empty,
+            _ => string.Empty
+        };
+    }
+
+    public object?[] ConvertBack(object value, Type[] targetTypes, object parameter, CultureInfo culture) =>
+        throw new NotSupportedException();
+}
+
+/// <summary>Convertit un code devise ISO (ex : "EUR") en son symbole d'affichage CIMP (ex : "€") — voir <see cref="CurrencyDisplay"/>.</summary>
+public sealed class CurrencyCodeToSymbolConverter : IValueConverter
+{
+    public object Convert(object? value, Type targetType, object parameter, CultureInfo culture) =>
+        CurrencyDisplay.SymbolFor(value as string);
+
+    public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture) =>
+        throw new NotSupportedException();
+}
 
 /// <summary>Convertit null/non-null en Visibility (masque un panneau de détail tant qu'aucun élément n'est sélectionné).</summary>
 public sealed class NullToVisibilityConverter : IValueConverter

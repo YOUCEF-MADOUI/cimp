@@ -19,7 +19,7 @@
             </Border>
             <Border Background="#FEF7E0" Margin="4" Padding="16" CornerRadius="4">
                 <StackPanel>
-                    <TextBlock Text="Total droits de douane (DZD)" FontSize="11" Foreground="Gray" />
+                    <TextBlock Text="Total droits de douane (DA)" FontSize="11" Foreground="Gray" />
                     <TextBlock Text="{Binding TotalDroitsDeDouaneDzd, StringFormat=N2}" FontSize="22" FontWeight="Bold" />
                 </StackPanel>
             </Border>

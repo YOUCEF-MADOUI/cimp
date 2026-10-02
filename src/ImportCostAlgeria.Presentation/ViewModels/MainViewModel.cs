@@ -6,12 +6,20 @@ using ImportCostAlgeria.Core.Domain;
 using ImportCostAlgeria.Database.Repositories;
 using ImportCostAlgeria.Presentation.Infrastructure;
 using ImportCostAlgeria.Presentation.Services;
+using ImportCostAlgeria.Presentation.Views;
 
 namespace ImportCostAlgeria.Presentation.ViewModels;
 
 /// <summary>
-/// ViewModel de la coquille applicative (Section 37 — menu principal) : navigation entre écrans et
-/// sélection de l'entreprise active (Section 32 — isolation multi-entreprise).
+/// ViewModel de la coquille applicative (Section 37 — menu principal). Revue du 2026-10-02 (REFONTE
+/// INTERFACE, Sections 1-3) : l'ancienne navigation par volet gauche (boutons radio) est SUPPRIMÉE — le
+/// contenu principal affiche directement l'écran "Importations" au démarrage (et la fiche détaillée d'une
+/// importation lorsqu'on l'ouvre), tandis que les écrans auparavant accessibles par le volet gauche
+/// (Entreprises, Réglementation, Taux de change, Journal d'audit, Paramètres &amp; Utilisateurs) restent
+/// TOUS accessibles — sans aucune perte de fonctionnalité — depuis le nouveau menu "Paramètres", chacun
+/// ouvert dans une fenêtre dédiée (<see cref="ChildScreenWindow"/>). Le "Tableau de bord" n'est plus
+/// exposé dans l'interface (demande explicite de la Section 1) ; son ViewModel/Vue restent présents dans
+/// le code (aucune suppression de fonctionnalité métier) mais ne sont plus atteignables depuis le menu.
 /// </summary>
 public sealed class MainViewModel : ObservableObject
 {
@@ -27,7 +35,6 @@ public sealed class MainViewModel : ObservableObject
 
     private object? _currentView;
     private Company? _selectedCompany;
-    private string _selectedMenu = "TABLEAU DE BORD";
 
     public MainViewModel(
         CompanyRepository companyRepository,
@@ -53,20 +60,23 @@ public sealed class MainViewModel : ObservableObject
         Companies = new ObservableCollection<Company>();
         RefreshCompanies();
 
-        ShowDashboardCommand = new RelayCommand(ShowDashboard);
-        ShowEntreprisesCommand = new RelayCommand(ShowEntreprises);
-        ShowImportationsCommand = new RelayCommand(ShowImportations, () => SelectedCompany != null);
-        ShowReglementationCommand = new RelayCommand(ShowReglementation);
-        ShowTauxDeChangeCommand = new RelayCommand(ShowTauxDeChange);
-        ShowAuditCommand = new RelayCommand(ShowAudit);
-        ShowParametresCommand = new RelayCommand(ShowParametres, () => SelectedCompany != null);
+        NewImportCommand = new RelayCommand(() => _importationsVm.NewCommand.Execute(null), () => SelectedCompany != null && _importationsVm.NewCommand.CanExecute(null));
+        RefreshImportationsCommand = new RelayCommand(() => { if (SelectedCompany != null) _importationsVm.LoadForCompany(SelectedCompany); });
+        OpenEntreprisesCommand = new RelayCommand(() => OpenChildWindow(_entreprisesVm, "CIMP — Entreprises"));
+        OpenParametresCommand = new RelayCommand(() => OpenChildWindow(_parametresVm, "CIMP — Utilisateurs, rôles & sécurité"), () => SelectedCompany != null);
+        OpenTauxDeChangeCommand = new RelayCommand(() => OpenChildWindow(_tauxDeChangeVm, "CIMP — Taux de change"));
+        OpenReglementationCommand = new RelayCommand(() => OpenChildWindow(_reglementationVm, "CIMP — Paramètres fiscaux & réglementation"));
+        OpenAuditCommand = new RelayCommand(() => OpenChildWindow(_auditLogVm, "CIMP — Journal d'audit"));
+        ShowAboutCommand = new RelayCommand(ShowAbout);
         QuitCommand = new RelayCommand(() => Application.Current.Shutdown());
 
         _importationsVm.NavigateToDetail = vm => CurrentView = vm;
         _importationsVm.NavigateBackToList = () => CurrentView = _importationsVm;
         _entreprisesVm.CompanySaved = RefreshCompanies;
 
-        ShowDashboard();
+        // Section 3 de la refonte : l'écran de démarrage est désormais directement "Importations"
+        // (l'ancien "Tableau de bord" n'est plus affiché nulle part dans l'interface).
+        ShowImportations();
     }
 
     public SessionContext Session => _session;
@@ -97,19 +107,14 @@ public sealed class MainViewModel : ObservableObject
         set => SetField(ref _currentView, value);
     }
 
-    public string SelectedMenu
-    {
-        get => _selectedMenu;
-        set => SetField(ref _selectedMenu, value);
-    }
-
-    public RelayCommand ShowDashboardCommand { get; }
-    public RelayCommand ShowEntreprisesCommand { get; }
-    public RelayCommand ShowImportationsCommand { get; }
-    public RelayCommand ShowReglementationCommand { get; }
-    public RelayCommand ShowTauxDeChangeCommand { get; }
-    public RelayCommand ShowAuditCommand { get; }
-    public RelayCommand ShowParametresCommand { get; }
+    public RelayCommand NewImportCommand { get; }
+    public RelayCommand RefreshImportationsCommand { get; }
+    public RelayCommand OpenEntreprisesCommand { get; }
+    public RelayCommand OpenParametresCommand { get; }
+    public RelayCommand OpenTauxDeChangeCommand { get; }
+    public RelayCommand OpenReglementationCommand { get; }
+    public RelayCommand OpenAuditCommand { get; }
+    public RelayCommand ShowAboutCommand { get; }
     public RelayCommand QuitCommand { get; }
 
     public void RefreshCompanies()
@@ -122,11 +127,26 @@ public sealed class MainViewModel : ObservableObject
             SelectedCompany = Companies.First();
     }
 
-    private void ShowDashboard() { SelectedMenu = "TABLEAU DE BORD"; CurrentView = _dashboardVm; }
-    private void ShowEntreprises() { SelectedMenu = "ENTREPRISES"; CurrentView = _entreprisesVm; }
-    private void ShowImportations() { SelectedMenu = "IMPORTATIONS"; CurrentView = _importationsVm; }
-    private void ShowReglementation() { SelectedMenu = "RÉGLEMENTATION"; CurrentView = _reglementationVm; }
-    private void ShowTauxDeChange() { SelectedMenu = "TAUX DE CHANGE"; CurrentView = _tauxDeChangeVm; }
-    private void ShowAudit() { SelectedMenu = "JOURNAL D'AUDIT"; CurrentView = _auditLogVm; }
-    private void ShowParametres() { SelectedMenu = "PARAMÈTRES & UTILISATEURS"; CurrentView = _parametresVm; }
+    private void ShowImportations() => CurrentView = _importationsVm;
+
+    /// <summary>
+    /// Revue du 2026-10-02 (REFONTE INTERFACE, Section 2) : ouvre un écran auparavant accessible par
+    /// l'ancienne navigation gauche dans une fenêtre MODALE dédiée (même convention que les autres boîtes
+    /// de dialogue de l'application — ExcelImportWizardWindow, ChangePasswordWindow...), sans jamais
+    /// perdre le contenu actuellement affiché dans la fenêtre principale (Importations ou fiche détaillée).
+    /// </summary>
+    private void OpenChildWindow(object viewModel, string title)
+    {
+        var window = new ChildScreenWindow { DataContext = viewModel, Owner = Application.Current.MainWindow, Title = title };
+        window.ShowDialog();
+    }
+
+    private void ShowAbout()
+    {
+        MessageBox.Show(
+            "CIMP — Coût d'Importation Maître Pro (Algérie)\n\n" +
+            "Calcul de la liquidation douanière, des taxes et du coût de revient réel des importations, " +
+            "avec traçabilité réglementaire complète (Journal Officiel, articles de loi).",
+            "À propos de CIMP", MessageBoxButton.OK, MessageBoxImage.Information);
+    }
 }

@@ -50,6 +50,13 @@ public sealed class ImportDetailViewModel : ObservableObject
     private decimal _totalFraisDzd;
     private bool _isProvisionalCalculation;
     private string _provisionalMessageFr = string.Empty;
+    private decimal _totalDedouanementDzd;
+    private string _customsValueDisplayCurrency = "DA";
+    private decimal? _customsValueDisplayAmount;
+    private bool _hasAnyAiProposedHs;
+    private bool _hasAnyManualVatRate;
+    private bool _hasAnyVatExemptionReason;
+    private bool _hasAnyExcelDutyRate;
     private string _exchangeRateInfo = string.Empty;
     private string _authorizationExchangeRateInfo = string.Empty;
     private string _authorizationConversionSummary = string.Empty;
@@ -73,6 +80,9 @@ public sealed class ImportDetailViewModel : ObservableObject
         _serviceProvider = serviceProvider;
 
         Lines = new ObservableCollection<ImportLineRowViewModel>();
+        // Revue du 2026-10-02 (REFONTE INTERFACE, Section 10) : masquage dynamique des colonnes
+        // facultatives (IA/fiscales) dès que l'ensemble des articles affichés change.
+        Lines.CollectionChanged += (_, __) => RecomputeDynamicColumnVisibility();
         Fees = new ObservableCollection<ImportFee>();
         Anomalies = new ObservableCollection<CalculationAnomaly>();
         FeeTemplates = ImportFeeCatalog.StandardTemplates.ToArray();
@@ -115,6 +125,8 @@ public sealed class ImportDetailViewModel : ObservableObject
         RefreshExchangeRateInfo();
         RefreshAuthorizationExchangeRateInfo();
         RefreshIncotermGuidance();
+        RecomputeDynamicColumnVisibility();
+        RefreshCustomsValueDisplayAmount();
     }
 
     public string HeaderLabel { get => _headerLabel; private set => SetField(ref _headerLabel, value); }
@@ -164,6 +176,89 @@ public sealed class ImportDetailViewModel : ObservableObject
     /// </summary>
     public bool IsProvisionalCalculation { get => _isProvisionalCalculation; private set => SetField(ref _isProvisionalCalculation, value); }
     public string ProvisionalMessageFr { get => _provisionalMessageFr; private set => SetField(ref _provisionalMessageFr, value); }
+
+    /// <summary>
+    /// Revue du 2026-10-02 (REFONTE INTERFACE, Section 9) : TOTAL DÉDOUANEMENT = DD + CS + TVA + PRCT +
+    /// TCS + RPS (Sections 9 & 22 de la demande — formule EXPLICITEMENT répétée avec CS inclus, même si le
+    /// libellé initial ne mentionnait que "TVA+TCS+PRCT+DD+RPS"). N'inclut JAMAIS les frais commerciaux
+    /// (transport, manutention, magasinage, transit...) ni la DAPS (absente de la formule donnée) — ce
+    /// total représente strictement les taxes/droits de LIQUIDATION douanière.
+    /// </summary>
+    public decimal TotalDedouanementDzd { get => _totalDedouanementDzd; private set => SetField(ref _totalDedouanementDzd, value); }
+
+    /// <summary>Devises proposées pour l'affichage (uniquement) de la valeur en douane — Section 8.</summary>
+    public string[] CustomsValueDisplayCurrencies { get; } = { "DA", "EUR", "USD" };
+
+    /// <summary>
+    /// Revue du 2026-10-02 (REFONTE INTERFACE, Section 8) : devise choisie pour l'AFFICHAGE de la valeur en
+    /// douane — une conversion PUREMENT visuelle, qui ne modifie JAMAIS la valeur réglementaire (toujours
+    /// calculée et stockée en DZD), ni les droits/taxes/coût de revient (tous recalculés en DZD, inchangés).
+    /// </summary>
+    public string CustomsValueDisplayCurrency
+    {
+        get => _customsValueDisplayCurrency;
+        set { if (SetField(ref _customsValueDisplayCurrency, value)) RefreshCustomsValueDisplayAmount(); }
+    }
+
+    /// <summary>Valeur en douane convertie (affichage uniquement) dans <see cref="CustomsValueDisplayCurrency"/> — null si aucun taux n'est disponible pour la conversion demandée.</summary>
+    public decimal? CustomsValueDisplayAmount { get => _customsValueDisplayAmount; private set => SetField(ref _customsValueDisplayAmount, value); }
+
+    /// <summary>Code ISO correspondant à <see cref="CustomsValueDisplayCurrency"/> ("DA" -&gt; "DZD"), pour résoudre le taux de change.</summary>
+    private string CustomsValueDisplayCurrencyIso => _customsValueDisplayCurrency == "DA" ? "DZD" : _customsValueDisplayCurrency;
+
+    // ------------------------------------------------------------------------------------------
+    // Revue du 2026-10-02 (REFONTE INTERFACE, Section 10) : visibilité dynamique des colonnes
+    // facultatives (IA/fiscales) du tableau des articles — masquées automatiquement lorsqu'AUCUN
+    // article affiché ne porte réellement cette donnée, affichées dès qu'au moins un article la porte.
+    // Ne supprime RIEN du modèle : une pure dérivation d'affichage, recalculée à chaque changement des
+    // lignes (ajout/suppression/import Excel) et après chaque calcul.
+    // ------------------------------------------------------------------------------------------
+    public bool HasAnyAiProposedHs { get => _hasAnyAiProposedHs; private set => SetField(ref _hasAnyAiProposedHs, value); }
+    public bool HasAnyManualVatRate { get => _hasAnyManualVatRate; private set => SetField(ref _hasAnyManualVatRate, value); }
+    public bool HasAnyVatExemptionReason { get => _hasAnyVatExemptionReason; private set => SetField(ref _hasAnyVatExemptionReason, value); }
+    public bool HasAnyExcelDutyRate { get => _hasAnyExcelDutyRate; private set => SetField(ref _hasAnyExcelDutyRate, value); }
+
+    /// <summary>Section 11/13 : la colonne "PU Autorisation"/"Total Autorisation" n'a de sens que si la devise d'autorisation diffère de la devise principale de l'importation.</summary>
+    public bool NeedsAuthorizationDisplay =>
+        !string.Equals(_operation?.AuthorizationCurrencyCode, _operation?.MainCurrencyCode, StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>Symbole de la devise d'autorisation (ex : "$"), pour les en-têtes dynamiques "PU $"/"Total $" — Section 11.</summary>
+    public string AuthorizationCurrencySymbol => CurrencyDisplay.SymbolFor(_operation?.AuthorizationCurrencyCode);
+
+    private void RecomputeDynamicColumnVisibility()
+    {
+        HasAnyAiProposedHs = Lines.Any(l => !string.IsNullOrWhiteSpace(l.Line.AiProposedHsCode10));
+        HasAnyManualVatRate = Lines.Any(l => l.ManualVatRatePercent.HasValue);
+        HasAnyVatExemptionReason = Lines.Any(l => !string.IsNullOrWhiteSpace(l.VatExemptionReasonFr));
+        HasAnyExcelDutyRate = Lines.Any(l => l.ExcelDutyRatePercent.HasValue);
+        OnPropertyChanged(nameof(NeedsAuthorizationDisplay));
+        OnPropertyChanged(nameof(AuthorizationCurrencySymbol));
+    }
+
+    /// <summary>
+    /// Convertit <see cref="TotalValeurDouaneDzd"/> (toujours calculée/stockée en DZD) vers la devise
+    /// choisie pour l'affichage — jamais l'inverse (Section 8 : "ne doit absolument pas modifier la valeur
+    /// douanière réglementaire"). Utilise le même taux réglementaire officiel (ou la surcharge manuelle de
+    /// l'importation) que le calcul douanier lui-même — jamais le taux commercial d'autorisation.
+    /// </summary>
+    private void RefreshCustomsValueDisplayAmount()
+    {
+        if (_operation == null) { CustomsValueDisplayAmount = null; return; }
+
+        if (CustomsValueDisplayCurrencyIso == "DZD")
+        {
+            CustomsValueDisplayAmount = TotalValeurDouaneDzd;
+            return;
+        }
+
+        var provider = _engineFactory.CreateExchangeRateProvider();
+        decimal? rateToDzd = string.Equals(CustomsValueDisplayCurrencyIso, _operation.MainCurrencyCode, StringComparison.OrdinalIgnoreCase)
+                              && _operation.ManualExchangeRateOverride.HasValue
+            ? _operation.ManualExchangeRateOverride
+            : provider.GetRegulatoryRate(CustomsValueDisplayCurrencyIso, _operation.ReferenceDate)?.RateToDzd;
+
+        CustomsValueDisplayAmount = ProfitCalculator.ConvertDzdToDisplayCurrency(TotalValeurDouaneDzd, rateToDzd);
+    }
     public string ExchangeRateInfo { get => _exchangeRateInfo; private set => SetField(ref _exchangeRateInfo, value); }
     public string IncotermGuidance { get => _incotermGuidance; private set => SetField(ref _incotermGuidance, value); }
 
@@ -202,6 +297,8 @@ public sealed class ImportDetailViewModel : ObservableObject
             _operation.AuthorizationCurrencyCode = string.IsNullOrWhiteSpace(value) ? "USD" : value.Trim().ToUpperInvariant();
             OnPropertyChanged();
             RefreshAuthorizationExchangeRateInfo();
+            OnPropertyChanged(nameof(NeedsAuthorizationDisplay));
+            OnPropertyChanged(nameof(AuthorizationCurrencySymbol));
         }
     }
 
@@ -320,7 +417,7 @@ public sealed class ImportDetailViewModel : ObservableObject
     {
         if (string.Equals(_operation.MainCurrencyCode, "DZD", StringComparison.OrdinalIgnoreCase))
         {
-            ExchangeRateInfo = "Devise principale = DZD : aucune conversion nécessaire.";
+            ExchangeRateInfo = "Devise principale = DA : aucune conversion nécessaire.";
             return;
         }
 
@@ -328,7 +425,7 @@ public sealed class ImportDetailViewModel : ObservableObject
         var official = provider.GetRegulatoryRate(_operation.MainCurrencyCode, _operation.ReferenceDate);
         ExchangeRateInfo = official == null
             ? $"INFORMATION NON DÉTERMINÉE : aucun taux officiel enregistré pour {_operation.MainCurrencyCode} au {_operation.ReferenceDate:dd/MM/yyyy}."
-            : $"Taux officiel enregistré : 1 {_operation.MainCurrencyCode} = {official.RateToDzd:F4} DZD ({official.SourceName}, valide depuis le {official.ValidFrom:dd/MM/yyyy}).";
+            : $"Taux officiel enregistré : 1 {_operation.MainCurrencyCode} = {official.RateToDzd:F4} DA ({official.SourceName}, valide depuis le {official.ValidFrom:dd/MM/yyyy}).";
     }
 
     /// <summary>
@@ -520,10 +617,21 @@ public sealed class ImportDetailViewModel : ObservableObject
             var summary = orchestrator.ExecuteCalculation(_company, _operation);
             _lastSummary = summary;
 
+            // Revue du 2026-10-02 (REFONTE INTERFACE, Section 10/18) : identifiants des frais RPS (déplacé
+            // avant la boucle ci-dessous pour alimenter la nouvelle colonne RPS par article, SANS jamais
+            // dupliquer le montant total — chaque ligne ne reçoit que sa PART déjà répartie par le moteur).
+            var rpsFeeIds = _operation.Fees
+                .Where(f => string.Equals(f.FeeCategoryCode, "RPS", StringComparison.OrdinalIgnoreCase))
+                .Select(f => f.Id)
+                .ToHashSet();
+
             foreach (var row in Lines)
             {
                 row.Result = summary.LineResults.FirstOrDefault(l => l.LineNumber == row.Line.LineNumber);
                 row.AnomaliesForLine = summary.Anomalies.Where(a => a.LineNumber == row.Line.LineNumber).ToList();
+                row.RpsAllocatedDzd = row.Result?.FeeAllocations
+                    .Where(a => rpsFeeIds.Contains(a.FeeId))
+                    .Sum(a => a.AllocatedAmountDzd);
                 row.RaiseEtatChanged();
             }
 
@@ -549,14 +657,17 @@ public sealed class ImportDetailViewModel : ObservableObject
             TotalTcsDzd = SumTax("TCS");
             TotalDapsDzd = SumTax("DAPS");
 
-            var rpsFeeIds = _operation.Fees
-                .Where(f => string.Equals(f.FeeCategoryCode, "RPS", StringComparison.OrdinalIgnoreCase))
-                .Select(f => f.Id)
-                .ToHashSet();
             TotalRpsDzd = summary.LineResults
                 .SelectMany(l => l.FeeAllocations)
                 .Where(a => rpsFeeIds.Contains(a.FeeId))
                 .Sum(a => a.AllocatedAmountDzd);
+
+            // Section 9 : TOTAL DÉDOUANEMENT = DD + CS + TVA + PRCT + TCS + RPS (jamais les frais
+            // commerciaux/importation, jamais la DAPS — formule explicite de la demande).
+            TotalDedouanementDzd = TotalDroitsDouaneDzd + TotalCsDzd + TotalTvaDzd + TotalPrctDzd + TotalTcsDzd + TotalRpsDzd;
+
+            RecomputeDynamicColumnVisibility();
+            RefreshCustomsValueDisplayAmount();
 
             // Section 15 : distinguer un calcul réellement bloqué (bandeau rouge, inchangé) d'un calcul
             // PROVISOIRE (bandeau orange) qui s'est exécuté avec succès mais en utilisant au moins un taux
@@ -599,7 +710,7 @@ public sealed class ImportDetailViewModel : ObservableObject
 
             _audit.RecordAction(_company.Id, _session.CurrentUser?.Id ?? Guid.Empty, _session.CurrentUser?.DisplayName ?? "Inconnu",
                 "CALCULATION", "EXECUTE_CALCULATION",
-                newValue: $"{summary.TotalRealCostOfGoodsDzd:N2} DZD — {summary.Anomalies.Count} anomalie(s){defaultRatesAuditNote}",
+                newValue: $"{summary.TotalRealCostOfGoodsDzd:N2} DA — {summary.Anomalies.Count} anomalie(s){defaultRatesAuditNote}",
                 importOperationId: _operation.Id,
                 regulatoryVersionCode: IsProvisionalCalculation ? "DEFAULT_IMPORT" : null);
 
@@ -615,8 +726,8 @@ public sealed class ImportDetailViewModel : ObservableObject
                 summary.HasBlockingAnomalies
                     ? "Calcul exécuté avec des anomalies BLOQUANTES : le coût de revient ne peut pas être considéré comme définitif tant qu'elles ne sont pas résolues."
                     : IsProvisionalCalculation
-                        ? $"{ProvisionalMessageFr}\nCoût total de revient (provisoire) : {summary.TotalRealCostOfGoodsDzd:N2} DZD."
-                        : $"Calcul exécuté avec succès.\nCoût total de revient : {summary.TotalRealCostOfGoodsDzd:N2} DZD.",
+                        ? $"{ProvisionalMessageFr}\nCoût total de revient (provisoire) : {summary.TotalRealCostOfGoodsDzd:N2} DA."
+                        : $"Calcul exécuté avec succès.\nCoût total de revient : {summary.TotalRealCostOfGoodsDzd:N2} DA.",
                 "CIMP — Résultat du calcul", MessageBoxButton.OK,
                 summary.HasBlockingAnomalies ? MessageBoxImage.Warning
                     : IsProvisionalCalculation ? MessageBoxImage.Warning

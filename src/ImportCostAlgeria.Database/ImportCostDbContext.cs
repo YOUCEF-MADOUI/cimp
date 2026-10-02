@@ -166,6 +166,9 @@ public sealed class ImportCostDbContext : DbContext
             b.Property(x => x.ManualVatRatePercent).HasPrecision(9, 4);
             b.Property(x => x.LineGrossWeightKg).HasPrecision(18, 4);
             b.Property(x => x.LineVolumeM3).HasPrecision(18, 4);
+            // Revue du 2026-10-02 (REFONTE INTERFACE, Section 15) : prix de vente unitaire en DA, purement
+            // commercial/informatif (jamais utilisé dans le calcul douanier/fiscal — voir Entities.cs).
+            b.Property(x => x.SalePriceDzd).HasPrecision(18, 4);
 
             // EF Core ne mappe pas nativement un Dictionary<Guid, decimal> : sérialisation JSON dédiée
             // (Section 12 — allocations manuelles de frais par ligne), avec comparateur de valeur pour

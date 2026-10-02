@@ -1,0 +1,15 @@
+<Window x:Class="ImportCostAlgeria.Presentation.Views.ChildScreenWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="CIMP"
+        Height="700" Width="1100" WindowStartupLocation="CenterOwner">
+    <!--
+    Revue du 2026-10-02 (REFONTE INTERFACE — Section 2) : fenêtre générique réutilisée pour héberger les
+    écrans déplacés du menu "Paramètres" (Entreprises, Utilisateurs/Rôles/Sécurité, Taux de change,
+    Réglementation/paramètres fiscaux, Journal d'audit) — aucune fonctionnalité n'est supprimée, elles sont
+    UNIQUEMENT déplacées hors de l'ancienne navigation gauche (désormais supprimée) vers ce menu.
+    Les DataTemplates associant chaque ViewModel à sa Vue existante restent déclarés globalement dans
+    App.xaml (ResourceDictionary partagé entre MainWindow et cette fenêtre).
+    -->
+    <ContentControl Content="{Binding}" Margin="12" />
+</Window>
