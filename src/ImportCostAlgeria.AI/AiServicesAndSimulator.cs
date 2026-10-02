@@ -100,6 +100,18 @@ public sealed class ImportSimulatorService
             UserConfirmedManualPrct = originalOperation.UserConfirmedManualPrct,
             ManualTcsRatePercent = originalOperation.ManualTcsRatePercent,
             UserConfirmedManualTcs = originalOperation.UserConfirmedManualTcs,
+            // Revue du 2026-10-02 (correction urgente) : les taux PAR DÉFAUT de l'importation réelle sont
+            // également reconduits dans la simulation "what-if" — sinon le simulateur afficherait des
+            // résultats/anomalies incohérents avec l'opération réelle (ex: TVA/CS/PRCT retombant à 0 ou
+            // "non déterminé" dans la simulation alors que l'opération réelle utilise des valeurs par
+            // défaut explicitement configurées).
+            UseDefaultRatesWhenRuleMissing = originalOperation.UseDefaultRatesWhenRuleMissing,
+            DefaultDdRatePercent = originalOperation.DefaultDdRatePercent,
+            DefaultCsRatePercent = originalOperation.DefaultCsRatePercent,
+            DefaultPrctRatePercent = originalOperation.DefaultPrctRatePercent,
+            DefaultTvaRatePercent = originalOperation.DefaultTvaRatePercent,
+            DefaultTcsRatePercent = originalOperation.DefaultTcsRatePercent,
+            DefaultRpsAmountDzd = originalOperation.DefaultRpsAmountDzd,
             ValuationMethod = originalOperation.ValuationMethod,
             ArrivalPortOrBorder = originalOperation.ArrivalPortOrBorder,
             TransportMode = originalOperation.TransportMode,

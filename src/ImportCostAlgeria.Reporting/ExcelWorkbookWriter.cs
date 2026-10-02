@@ -105,7 +105,13 @@ public static class ExcelWorkbookWriter
         Line("Total Frais (DZD)", r.TotalFraisDzd);
         Line("Valeur Douanière (DZD)", r.ValeurDouaniereDzd);
         Line("Total Droits de Douane (DZD)", r.TotalDroitsDouaneDzd);
-        Line("Total Autres Taxes (DZD)", r.TotalAutresTaxesDzd);
+        // Revue du 2026-10-02 (correction urgente, Section 14) : chaque taxe additionnelle affichée
+        // SÉPARÉMENT — une ligne combinée "Autres taxes" unique est explicitement rejetée.
+        Line("Total CS (DZD)", r.TotalCsDzd);
+        Line("Total PRCT (DZD)", r.TotalPrctDzd);
+        Line("Total TCS (DZD)", r.TotalTcsDzd);
+        Line("Total DAPS (DZD)", r.TotalDapsDzd);
+        Line("Total RPS (DZD)", r.TotalRpsDzd);
         Line("Total TVA (DZD)", r.TotalTvaDzd);
         Line("Total Droits et Taxes (DZD)", r.TotalDroitsEtTaxesDzd);
         Line("Coût d'Acquisition Hors TVA (DZD)", r.CoutAcquisitionHorsTvaDzd);

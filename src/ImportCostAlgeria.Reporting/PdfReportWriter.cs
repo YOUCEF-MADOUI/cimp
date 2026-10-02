@@ -173,7 +173,14 @@ public static class PdfReportWriter
                 row.RelativeItem().Column(c =>
                 {
                     c.Item().Text($"Droits de douane : {r.TotalDroitsDouaneDzd:N2} DZD");
-                    c.Item().Text($"Autres taxes : {r.TotalAutresTaxesDzd:N2} DZD");
+                    // Revue du 2026-10-02 (correction urgente, Section 14) : chaque taxe additionnelle
+                    // affichée SÉPARÉMENT — une ligne combinée "Autres taxes" unique est explicitement
+                    // rejetée par la demande utilisateur.
+                    c.Item().Text($"CS : {r.TotalCsDzd:N2} DZD");
+                    c.Item().Text($"PRCT : {r.TotalPrctDzd:N2} DZD");
+                    c.Item().Text($"TCS : {r.TotalTcsDzd:N2} DZD");
+                    c.Item().Text($"DAPS : {r.TotalDapsDzd:N2} DZD");
+                    c.Item().Text($"RPS : {r.TotalRpsDzd:N2} DZD");
                     c.Item().Text($"TVA import : {r.TotalTvaDzd:N2} DZD");
                     c.Item().Text($"Total droits et taxes : {r.TotalDroitsEtTaxesDzd:N2} DZD").Bold();
                     c.Item().Text($"TVA non récupérable : {(r.IsVatNonRecoverable ? "OUI" : "NON")}");

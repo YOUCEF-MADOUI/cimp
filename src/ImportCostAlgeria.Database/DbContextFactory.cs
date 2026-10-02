@@ -159,6 +159,19 @@ public static class DbContextFactory
             AddColumnIfMissing(connection, "ImportLines", "ManualVatRatePercent", "TEXT NULL");
             AddColumnIfMissing(connection, "ImportLines", "UserConfirmedManualVatRate", "INTEGER NOT NULL DEFAULT 0");
             AddColumnIfMissing(connection, "ImportLines", "VatExemptionReasonFr", "TEXT NULL");
+
+            // Revue du 2026-10-02 (CORRECTION URGENTE — "ne plus bloquer le calcul faute de RegulatoryRule") :
+            // TAUX DE TAXES PAR DÉFAUT de l'importation. DEFAULT NOT NULL avec les mêmes valeurs initiales
+            // que le modèle métier (voir ImportOperation) afin que les lignes DÉJÀ existantes dans une base
+            // déployée conservent exactement le même comportement de calcul qu'avant cette correction tant
+            // que l'utilisateur ne modifie pas explicitement ces valeurs.
+            AddColumnIfMissing(connection, "ImportOperations", "UseDefaultRatesWhenRuleMissing", "INTEGER NOT NULL DEFAULT 1");
+            AddColumnIfMissing(connection, "ImportOperations", "DefaultDdRatePercent", "TEXT NOT NULL DEFAULT '0'");
+            AddColumnIfMissing(connection, "ImportOperations", "DefaultCsRatePercent", "TEXT NOT NULL DEFAULT '3.0'");
+            AddColumnIfMissing(connection, "ImportOperations", "DefaultPrctRatePercent", "TEXT NOT NULL DEFAULT '2.0'");
+            AddColumnIfMissing(connection, "ImportOperations", "DefaultTvaRatePercent", "TEXT NOT NULL DEFAULT '19.0'");
+            AddColumnIfMissing(connection, "ImportOperations", "DefaultTcsRatePercent", "TEXT NOT NULL DEFAULT '0'");
+            AddColumnIfMissing(connection, "ImportOperations", "DefaultRpsAmountDzd", "TEXT NOT NULL DEFAULT '0'");
         }
         finally
         {

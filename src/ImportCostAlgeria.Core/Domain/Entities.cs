@@ -114,7 +114,16 @@ public enum DutyComparisonStatus
     Match,                                  // ✓ Correspondance (Droit Excel == Droit réglementaire)
     Difference,                             // ⚠️ DIFFÉRENCE (Droit Excel != Droit réglementaire)
     RegulatoryNotFoundPendingConfirmation,  // INFORMATION NON DÉTERMINÉE -> Attente confirmation utilisateur
-    ExcelFallbackConfirmedByUser            // Taux Excel utilisé après confirmation explicite et tracée
+    ExcelFallbackConfirmedByUser,           // Taux Excel utilisé après confirmation explicite et tracée
+    /// <summary>
+    /// Revue du 2026-10-02 (correction urgente — ne plus bloquer le calcul faute de RegulatoryRule) :
+    /// aucune règle réglementaire ni taux Excel confirmé n'étaient disponibles pour cet article, mais
+    /// l'importation autorise l'usage des taux de taxes PAR DÉFAUT (<see cref="ImportOperation.UseDefaultRatesWhenRuleMissing"/>)
+    /// — le taux appliqué est donc <see cref="ImportOperation.DefaultDdRatePercent"/>, jamais présenté
+    /// comme un taux réglementaire confirmé : un AVERTISSEMENT (jamais un blocage) est systématiquement
+    /// généré et le résultat doit être vérifié avant toute utilisation définitive.
+    /// </summary>
+    DefaultImportRateUsed
 }
 
 public enum AiProposalDecision
@@ -139,7 +148,42 @@ public enum DataOriginTag
     DonneeOfficielle,
     DonneeUtilisateur,
     CalculDuLogiciel,
-    PropositionIa
+    PropositionIa,
+    /// <summary>
+    /// Revue du 2026-10-02 (correction urgente — ne plus bloquer le calcul faute de RegulatoryRule) :
+    /// valeur issue des TAUX DE TAXES PAR DÉFAUT configurés au niveau de l'importation
+    /// (<see cref="ImportOperation.DefaultDdRatePercent"/>, <see cref="ImportOperation.DefaultCsRatePercent"/>,
+    /// <see cref="ImportOperation.DefaultPrctRatePercent"/>, <see cref="ImportOperation.DefaultTvaRatePercent"/>,
+    /// <see cref="ImportOperation.DefaultTcsRatePercent"/>), utilisée UNIQUEMENT lorsqu'aucune règle
+    /// réglementaire officielle n'a été trouvée ET que <see cref="ImportOperation.UseDefaultRatesWhenRuleMissing"/>
+    /// est actif. Statut affiché à l'écran : "VALEUR PAR DÉFAUT (IMPORTATION) — NON VÉRIFIÉE".
+    /// </summary>
+    ValeurParDefautImportation,
+    /// <summary>
+    /// Revue du 2026-10-02 : une règle réglementaire officielle en vigueur déclare EXPLICITEMENT que
+    /// cette taxe ne s'applique pas à ce code SH/cette origine/cette période (fait réglementaire sourcé,
+    /// jamais une supposition du logiciel) — à distinguer d'une absence de donnée.
+    /// </summary>
+    NonApplicable
+}
+
+/// <summary>
+/// Libellé FR du statut d'une donnée fiscale/réglementaire appliquée (Section 11 de la correction du
+/// 2026-10-02) : REGLEMENTAIRE / DEFAULT_IMPORT / MANUEL / NON_APPLICABLE / NON_DETERMINE. Centralisé ICI
+/// pour que l'écran et les rapports affichent toujours exactement le même libellé pour la même origine.
+/// </summary>
+public static class DataOriginTagLabels
+{
+    public static string ToStatusLabelFr(this DataOriginTag tag) => tag switch
+    {
+        DataOriginTag.DonneeOfficielle => "RÉGLEMENTAIRE",
+        DataOriginTag.ValeurParDefautImportation => "VALEUR PAR DÉFAUT (IMPORTATION)",
+        DataOriginTag.DonneeUtilisateur => "MANUEL",
+        DataOriginTag.NonApplicable => "NON APPLICABLE",
+        DataOriginTag.PropositionIa => "PROPOSITION IA",
+        DataOriginTag.CalculDuLogiciel => "NON DÉTERMINÉ",
+        _ => "NON DÉTERMINÉ"
+    };
 }
 
 // ============================================================================
@@ -316,6 +360,47 @@ public sealed class ImportOperation
     /// <summary>Même principe que <see cref="ManualPrctRatePercent"/>, pour la Taxe de Contribution de Solidarité (TCS).</summary>
     public decimal? ManualTcsRatePercent { get; set; }
     public bool UserConfirmedManualTcs { get; set; }
+
+    // ------------------------------------------------------------------------------------------
+    // Revue du 2026-10-02 (correction urgente — "ne plus bloquer le calcul faute de RegulatoryRule") :
+    // TAUX DE TAXES PAR DÉFAUT de l'importation. Utilisés UNIQUEMENT lorsqu'aucune RegulatoryRule
+    // officielle en vigueur n'a pu être résolue pour une ligne (statut "DEFAULT_IMPORT", jamais présenté
+    // comme un taux réglementaire confirmé — toujours accompagné d'un avertissement traçable). Ne
+    // modifient JAMAIS la base réglementaire permanente (RegulatoryRule) : ce sont des paramètres de
+    // CETTE importation uniquement, permettant au moteur de calculer au lieu de rester bloqué en
+    // attendant la publication/validation de toutes les règles officielles. Le Droit de Douane (DD) reste
+    // néanmoins résolu ARTICLE PAR ARTICLE (jamais une valeur globale imposée à toute l'importation) :
+    // seule la VALEUR DE REPLI par défaut (DefaultDdRatePercent) est commune, chaque article pouvant
+    // malgré tout disposer de sa propre règle officielle ou de son propre taux Excel confirmé.
+    // ------------------------------------------------------------------------------------------
+    /// <summary>
+    /// Active (par défaut) l'utilisation des taux ci-dessous lorsqu'une RegulatoryRule officielle est
+    /// introuvable pour un article. Si désactivé, une taxe sans règle officielle (ni confirmation
+    /// manuelle) reste à 0 avec le statut "NON DÉTERMINÉ" (toujours un avertissement, jamais un blocage).
+    /// </summary>
+    public bool UseDefaultRatesWhenRuleMissing { get; set; } = true;
+    /// <summary>Droit de Douane (DD) par défaut, appliqué ARTICLE PAR ARTICLE à défaut de règle officielle ou de taux Excel confirmé. Valeur initiale : 0 %.</summary>
+    public decimal DefaultDdRatePercent { get; set; } = 0m;
+    /// <summary>Contribution de Solidarité (CS) par défaut (assiette : Valeur en douane). Valeur initiale : 3 %.</summary>
+    public decimal DefaultCsRatePercent { get; set; } = 3.0m;
+    /// <summary>Précompte à l'importation (PRCT) par défaut (assiette : Valeur en douane + DD + CS + TVA). Valeur initiale : 2 %.</summary>
+    public decimal DefaultPrctRatePercent { get; set; } = 2.0m;
+    /// <summary>TVA à l'importation par défaut (assiette : Valeur en douane + DD + CS). Valeur initiale : 19 %.</summary>
+    public decimal DefaultTvaRatePercent { get; set; } = 19.0m;
+    /// <summary>
+    /// Taxe de Contribution de Solidarité (TCS) par défaut. Valeur initiale : 0 % — AUCUN taux TCS
+    /// réglementaire n'est actuellement inventé par le logiciel ; ce paramètre reste modifiable par
+    /// importation (ex: 5 %), auquel cas le moteur recalcule automatiquement toutes les lignes.
+    /// </summary>
+    public decimal DefaultTcsRatePercent { get; set; } = 0m;
+    /// <summary>
+    /// Montant RPS (Redevance de Prestation de Service) suggéré par défaut pour les NOUVELLES
+    /// importations (DZD, montant fixe — jamais multiplié par le nombre d'articles). Valeur initiale : 0.
+    /// Purement indicatif : le montant réellement appliqué reste celui du frais RPS ajouté à l'écran
+    /// "Frais" (méthode de répartition Montant fixe), jamais recalculé automatiquement ici.
+    /// </summary>
+    public decimal DefaultRpsAmountDzd { get; set; } = 0m;
+
     public required IncotermCode Incoterm { get; set; }
     public string CustomsRegimeCode { get; set; } = "DROIT_COMMUN_4000";
     public CustomsValuationMethod ValuationMethod { get; set; } = CustomsValuationMethod.TransactionValue_Art16Ter;

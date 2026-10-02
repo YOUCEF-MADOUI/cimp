@@ -213,11 +213,23 @@ public sealed class D10ReferenceCaseTests
 
         // ------------------------------------------------------------------------------------------
         // 1) Aucune anomalie BLOQUANTE : tous les champs essentiels (DD, CS, TVA, PRCT) sont déterminés
-        //    par des règles officielles — seule la TCS (absente du D10, non simulée ici) déclenche des
-        //    avertissements "Donnée manquante", jamais un blocage.
+        //    par des règles officielles. La TCS (absente du D10, non simulée ici, aucune règle officielle
+        //    seedée) retombe sur le taux PAR DÉFAUT de l'importation (Section 2 de la correction du
+        //    2026-10-02 : TCS par défaut = 0 %, jamais inventée à une valeur non nulle) — à 0 % exactement,
+        //    aucun avertissement n'est généré (seul un taux par défaut NON NUL déclenche un avertissement),
+        //    et le calcul n'est JAMAIS bloqué par l'absence de règle officielle.
         // ------------------------------------------------------------------------------------------
         Assert.False(summary.HasBlockingAnomalies);
-        Assert.Contains(summary.Anomalies, a => a.AnomalyCode == "TCS_RATE_NOT_DETERMINED" && a.Severity == AnomalySeverity.Avertissement);
+        var tcsBreakdowns = summary.LineResults
+            .SelectMany(l => l.CustomsOutcome.AdditionalTaxes)
+            .Where(t => t.TaxCode == "TCS")
+            .ToList();
+        Assert.All(tcsBreakdowns, t =>
+        {
+            Assert.Equal(0m, t.RatePercent);
+            Assert.Equal(0m, t.TaxAmountDzd);
+            Assert.Equal(DataOriginTag.ValeurParDefautImportation, t.OriginTag);
+        });
 
         // ------------------------------------------------------------------------------------------
         // 2) Valeur en douane totale ≈ 9 625 557 DZD (D10 réel), avec une tolérance raisonnable due aux
@@ -293,6 +305,97 @@ public sealed class D10ReferenceCaseTests
         Assert.Equal("PT", operation.PurchaseCountryIso2);
         Assert.Equal("FR", operation.ExportShippingCountryIso2);
         Assert.All(operation.Lines, l => Assert.Equal("DE", l.OriginCountryIso2));
+    }
+
+    /// <summary>
+    /// Revue du 2026-10-02 (CORRECTION URGENTE) : AUCUNE RegulatoryRule n'existe nulle part pour cet
+    /// article (SH totalement inconnu du référentiel) — avec les taux par défaut de l'importation actifs
+    /// (comportement par défaut, <see cref="ImportOperation.UseDefaultRatesWhenRuleMissing"/> = true), le
+    /// calcul doit malgré tout aboutir : DD, CS, TVA, PRCT retombent tous en cascade sur leurs taux PAR
+    /// DÉFAUT respectifs (0 % / 3 % / 19 % / 2 %, Section 2), chacun accompagné d'un AVERTISSEMENT explicite
+    /// — JAMAIS d'anomalie bloquante (Section 1/24 : l'absence de règle réglementaire ne bloque plus rien).
+    /// Les montants attendus reproduisent les exemples chiffrés de la demande (Sections 5, 6 et 7).
+    /// </summary>
+    [Fact]
+    public void NoRegulatoryRuleAnywhere_WithDefaultsEnabled_ShouldCascadeToDefaultRates_AndNeverBlock()
+    {
+        var company = new Company
+        {
+            Code = "NO-RULES-CO",
+            LegalName = "SARL SANS RÈGLE",
+            IsImportVatNonRecoverable = true
+        };
+
+        var operation = new ImportOperation
+        {
+            CompanyId = company.Id,
+            ImportNumber = "NO-RULE-TEST",
+            ReferenceDate = new DateOnly(2026, 6, 1),
+            SupplierName = "FOURNISSEUR INCONNU",
+            PurchaseCountryIso2 = "CN",
+            ExportShippingCountryIso2 = "CN",
+            DefaultOriginCountryIso2 = null,
+            MainCurrencyCode = "EUR",
+            Incoterm = IncotermCode.CFR,
+            ArrivalPortOrBorder = "Port d'Alger",
+            TransportMode = "Maritime",
+            // Les taux par défaut restent ceux de l'opération par défaut (UseDefaultRatesWhenRuleMissing =
+            // true, CS = 3 %, PRCT = 2 %, TVA = 19 %, TCS = 0 %, DD par défaut = 0 %) — AUCUNE valeur
+            // par défaut n'est inventée dans ce test, uniquement les valeurs d'usine du modèle métier.
+            Lines =
+            {
+                new ImportLine { LineNumber = 1, ProductReference = "ARTICLE-INCONNU", Designation = "Article sans code SH référencé", Quantity = 1m, UnitPurchasePrice = 13799.79m, CurrencyCode = "EUR", HsCodeConfirmed10 = "9999999999", OriginCountryIso2 = "CN" }
+            }
+        };
+
+        // AUCUNE règle réglementaire seedée (liste vide) : SH totalement inconnu du référentiel.
+        var orchestrator = BuildOrchestrator(Array.Empty<RegulatoryRule>());
+        var summary = orchestrator.ExecuteCalculation(company, operation);
+
+        // 1) Jamais de blocage, malgré l'absence TOTALE de règle réglementaire pour cet article.
+        Assert.False(summary.HasBlockingAnomalies);
+
+        var line = Assert.Single(summary.LineResults);
+        var breakdowns = line.CustomsOutcome.AdditionalTaxes;
+
+        decimal vd = line.CustomsOutcome.CustomsValueDzd;
+        AssertWithinTolerance(2_079_857m, vd, tolerance: 1m);
+
+        // 2) DD par défaut (0 %), jamais présenté comme une règle officielle confirmée.
+        Assert.Equal(0m, line.CustomsOutcome.CustomsDutyRatePercent);
+        Assert.Equal(DataOriginTag.ValeurParDefautImportation, line.CustomsOutcome.CustomsDutyRateOriginTag);
+        Assert.Contains(summary.Anomalies, a => a.AnomalyCode == "DD_DEFAULT_RATE_USED" && a.Severity == AnomalySeverity.Avertissement);
+
+        // 3) CS par défaut (3 %, assiette = Valeur douane) — Section 5 : exemple VD=2 079 857 -> CS≈62 395,71.
+        var cs = Assert.Single(breakdowns, t => t.TaxCode == "CS");
+        Assert.Equal(3.0m, cs.RatePercent);
+        Assert.Equal(DataOriginTag.ValeurParDefautImportation, cs.OriginTag);
+        AssertWithinTolerance(62_395.71m, cs.TaxAmountDzd, tolerance: 1m);
+        Assert.Contains(summary.Anomalies, a => a.AnomalyCode == "CS_DEFAULT_RATE_USED" && a.Severity == AnomalySeverity.Avertissement);
+
+        // 4) TVA par défaut (19 %, assiette = VD + DD + CS) — Section 6 : exemple -> TVA≈407 028,01.
+        AssertWithinTolerance(407_028.01m, line.CustomsOutcome.ImportVatAmountDzd, tolerance: 1m);
+        Assert.Equal(DataOriginTag.ValeurParDefautImportation, line.CustomsOutcome.VatRateOriginTag);
+        Assert.Contains(summary.Anomalies, a => a.AnomalyCode == "TVA_DEFAULT_RATE_USED" && a.Severity == AnomalySeverity.Avertissement);
+
+        // 5) PRCT par défaut (2 %, assiette = VD + CS + TVA + DD) — Section 7 : exemple -> PRCT≈50 985,61.
+        var prct = Assert.Single(breakdowns, t => t.TaxCode == "PRCT");
+        Assert.Equal(2.0m, prct.RatePercent);
+        Assert.Equal(DataOriginTag.ValeurParDefautImportation, prct.OriginTag);
+        AssertWithinTolerance(50_985.61m, prct.TaxAmountDzd, tolerance: 1m);
+        Assert.Contains(summary.Anomalies, a => a.AnomalyCode == "PRCT_DEFAULT_RATE_USED" && a.Severity == AnomalySeverity.Avertissement);
+
+        // 6) TCS par défaut = 0 % (jamais une valeur inventée) : un montant de taxe à 0, AUCUN avertissement
+        //    (le taux par défaut vaut exactement 0, donc rien à signaler), jamais fusionnée avec la DAPS.
+        var tcs = Assert.Single(breakdowns, t => t.TaxCode == "TCS");
+        Assert.Equal(0m, tcs.RatePercent);
+        Assert.Equal(0m, tcs.TaxAmountDzd);
+        Assert.DoesNotContain(summary.Anomalies, a => a.AnomalyCode == "TCS_DEFAULT_RATE_USED");
+
+        // 7) Statuts explicites : exactement 5 valeurs possibles (Section 11) — ici toutes les taxes
+        //    résolues portent le statut DEFAULT_IMPORT (aucune règle officielle, aucune saisie manuelle).
+        Assert.All(new[] { cs.OriginTag, prct.OriginTag, tcs.OriginTag, line.CustomsOutcome.CustomsDutyRateOriginTag, line.CustomsOutcome.VatRateOriginTag },
+            tag => Assert.Equal(DataOriginTag.ValeurParDefautImportation, tag));
     }
 
     private static void AssertWithinTolerance(decimal expected, decimal actual, decimal tolerance)

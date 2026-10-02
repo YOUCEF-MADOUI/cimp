@@ -143,6 +143,13 @@ public sealed class ImportCostDbContext : DbContext
             b.Property(x => x.ManualAuthorizationExchangeRateOverride).HasPrecision(18, 6);
             b.Property(x => x.ManualPrctRatePercent).HasPrecision(9, 4);
             b.Property(x => x.ManualTcsRatePercent).HasPrecision(9, 4);
+            // Revue du 2026-10-02 (correction urgente) : taux de taxes PAR DÉFAUT de l'importation.
+            b.Property(x => x.DefaultDdRatePercent).HasPrecision(9, 4);
+            b.Property(x => x.DefaultCsRatePercent).HasPrecision(9, 4);
+            b.Property(x => x.DefaultPrctRatePercent).HasPrecision(9, 4);
+            b.Property(x => x.DefaultTvaRatePercent).HasPrecision(9, 4);
+            b.Property(x => x.DefaultTcsRatePercent).HasPrecision(9, 4);
+            b.Property(x => x.DefaultRpsAmountDzd).HasPrecision(18, 4);
             b.HasMany(op => op.Lines).WithOne().HasForeignKey("ImportOperationId").OnDelete(DeleteBehavior.Cascade);
             b.HasMany(op => op.Fees).WithOne().HasForeignKey("ImportOperationId").OnDelete(DeleteBehavior.Cascade);
             b.Navigation(op => op.Lines).AutoInclude();

@@ -65,7 +65,15 @@ public sealed record ExcelReportRecapSheet(
     string? DeviseAutorisation = null,
     decimal? TauxChangeAutorisation = null,
     decimal? MontantAutorisation = null,
-    string? TypeDeTauxAutorisationFr = null);
+    string? TypeDeTauxAutorisationFr = null,
+    // Revue du 2026-10-02 (correction urgente, Section 14) : chaque taxe additionnelle détaillée
+    // séparément (CS, PRCT, TCS, DAPS) ainsi que la RPS — TotalAutresTaxesDzd ci-dessus reste calculé
+    // pour compatibilité/contrôle de cohérence mais n'est plus affiché seul comme une ligne agrégée.
+    decimal TotalCsDzd = 0m,
+    decimal TotalPrctDzd = 0m,
+    decimal TotalTcsDzd = 0m,
+    decimal TotalDapsDzd = 0m,
+    decimal TotalRpsDzd = 0m);
 
 /// <summary>
 /// Feuille 3 : FRAIS — Détail et vérification de la répartition des frais (Sections 15, 16 & 23).
@@ -309,6 +317,26 @@ public sealed class ReportBuilderService
 
         decimal otherFeesDzd = calculation.TotalImportFeesDzd - transportDzd - assuranceDzd;
 
+        // Revue du 2026-10-02 (correction urgente, Section 14) : détail de chaque taxe additionnelle,
+        // même calcul que ImportDetailViewModel.Calculate() côté IHM (source unique de vérité = les
+        // AppliedTaxBreakdown réellement résolus par le moteur, jamais une ré-estimation indépendante).
+        var allAppliedTaxes = calculation.LineResults.SelectMany(l => l.CustomsOutcome.AdditionalTaxes).ToList();
+        decimal SumTax(string code) => allAppliedTaxes
+            .Where(t => string.Equals(t.TaxCode, code, StringComparison.OrdinalIgnoreCase))
+            .Sum(t => t.TaxAmountDzd);
+        decimal totalCsDzd = SumTax("CS");
+        decimal totalPrctDzd = SumTax("PRCT");
+        decimal totalTcsDzd = SumTax("TCS");
+        decimal totalDapsDzd = SumTax("DAPS");
+        var rpsFeeIds = operation.Fees
+            .Where(f => string.Equals(f.FeeCategoryCode, "RPS", StringComparison.OrdinalIgnoreCase))
+            .Select(f => f.Id)
+            .ToHashSet();
+        decimal totalRpsDzd = calculation.LineResults
+            .SelectMany(l => l.FeeAllocations)
+            .Where(a => rpsFeeIds.Contains(a.FeeId))
+            .Sum(a => a.AllocatedAmountDzd);
+
         var recap = new ExcelReportRecapSheet(
             ValeurFournisseurDzd: calculation.TotalPurchaseValueDzd,
             TransportInternationalDzd: transportDzd,
@@ -331,7 +359,12 @@ public sealed class ReportBuilderService
             DeviseAutorisation: calculation.CommercialAuthorizationConversion?.AuthorizationCurrencyCode,
             TauxChangeAutorisation: calculation.CommercialAuthorizationConversion?.EffectiveRate,
             MontantAutorisation: calculation.CommercialAuthorizationConversion?.AuthorizationTotalAmount,
-            TypeDeTauxAutorisationFr: calculation.CommercialAuthorizationConversion?.RateTypeLabelFr);
+            TypeDeTauxAutorisationFr: calculation.CommercialAuthorizationConversion?.RateTypeLabelFr,
+            TotalCsDzd: totalCsDzd,
+            TotalPrctDzd: totalPrctDzd,
+            TotalTcsDzd: totalTcsDzd,
+            TotalDapsDzd: totalDapsDzd,
+            TotalRpsDzd: totalRpsDzd);
 
         return new ExcelWorkbookReportModel(
             WorkbookTitle: $"Rapport_Importation_{operation.ImportNumber}",

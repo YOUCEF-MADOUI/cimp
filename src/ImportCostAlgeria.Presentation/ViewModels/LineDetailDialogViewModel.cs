@@ -21,7 +21,16 @@ public sealed class StandardTaxDisplayRowViewModel
         TaxCode = status.TaxCode;
         TaxNameFr = status.TaxNameFr;
         Kind = status.Kind;
-        StatusLabelFr = status.DisplayStatusFr;
+        // Revue du 2026-10-02 (correction urgente, Section 11 — statut RÉGLEMENTAIRE / DEFAULT_IMPORT /
+        // MANUEL / NON APPLICABLE / NON DÉTERMINÉ) : lorsqu'un montant a réellement été calculé
+        // (computedBreakdown non nul, y compris via un taux PAR DÉFAUT de l'importation ou une
+        // confirmation manuelle), le statut affiché reflète sa VRAIE origine (AppliedTaxBreakdown.OriginTag)
+        // plutôt que le statut réglementaire "brut" (qui dirait à tort "Donnée manquante" alors qu'un
+        // calcul a bien eu lieu). Sans montant calculé (Non applicable / vraiment aucune donnée), le
+        // statut réglementaire d'origine reste affiché tel quel.
+        StatusLabelFr = computedBreakdown != null
+            ? $"{computedBreakdown.OriginTag.ToStatusLabelFr()} ({computedBreakdown.RatePercent:N2} %)"
+            : status.DisplayStatusFr;
         TaxableBaseDzd = computedBreakdown?.TaxableBaseDzd;
         RatePercent = computedBreakdown?.RatePercent;
         TaxAmountDzd = computedBreakdown?.TaxAmountDzd;
@@ -105,6 +114,13 @@ public sealed class LineDetailDialogViewModel
                 return Result.CustomsOutcome.VatRatePercent == 0m
                     ? $"⚠️ Exonération de TVA confirmée manuellement (motif : {Row.VatExemptionReasonFr ?? "non précisé"})"
                     : $"⚠️ Taux de TVA saisi manuellement ({Result.CustomsOutcome.VatRatePercent:N2} %) — aucune règle officielle trouvée";
+            }
+
+            // Revue du 2026-10-02 (correction urgente, Section 6) : taux PAR DÉFAUT de l'importation
+            // (aucune règle officielle, aucune confirmation manuelle) — jamais présenté comme définitif.
+            if (Result.CustomsOutcome.VatRateOriginTag == DataOriginTag.ValeurParDefautImportation)
+            {
+                return $"⚠️ VALEUR PAR DÉFAUT DE L'IMPORTATION : TVA = {Result.CustomsOutcome.VatRatePercent:N2} % (règle réglementaire introuvable — à vérifier)";
             }
 
             return "Donnée réglementaire manquante — validation requise";

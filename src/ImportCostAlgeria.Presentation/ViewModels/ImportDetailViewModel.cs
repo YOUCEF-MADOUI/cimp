@@ -42,7 +42,14 @@ public sealed class ImportDetailViewModel : ObservableObject
     private decimal _totalDroitsDouaneDzd;
     private decimal _totalTvaDzd;
     private decimal _totalAutresTaxesDzd;
+    private decimal _totalCsDzd;
+    private decimal _totalPrctDzd;
+    private decimal _totalTcsDzd;
+    private decimal _totalDapsDzd;
+    private decimal _totalRpsDzd;
     private decimal _totalFraisDzd;
+    private bool _isProvisionalCalculation;
+    private string _provisionalMessageFr = string.Empty;
     private string _exchangeRateInfo = string.Empty;
     private string _authorizationExchangeRateInfo = string.Empty;
     private string _authorizationConversionSummary = string.Empty;
@@ -102,6 +109,8 @@ public sealed class ImportDetailViewModel : ObservableObject
         Anomalies.Clear();
         _lastSummary = null;
         HasBlockingAnomalies = false;
+        IsProvisionalCalculation = false;
+        ProvisionalMessageFr = string.Empty;
 
         RefreshExchangeRateInfo();
         RefreshAuthorizationExchangeRateInfo();
@@ -139,7 +148,22 @@ public sealed class ImportDetailViewModel : ObservableObject
     public decimal TotalTvaDzd { get => _totalTvaDzd; private set => SetField(ref _totalTvaDzd, value); }
     /// <summary>Section 23 : total des taxes additionnelles (CS, PRCT, TCS, DAPS...) distinct de la TVA et du DD.</summary>
     public decimal TotalAutresTaxesDzd { get => _totalAutresTaxesDzd; private set => SetField(ref _totalAutresTaxesDzd, value); }
+    /// <summary>Section 14 de la correction du 2026-10-02 : chaque taxe additionnelle affichée séparément (CS, PRCT, TCS, DAPS, RPS).</summary>
+    public decimal TotalCsDzd { get => _totalCsDzd; private set => SetField(ref _totalCsDzd, value); }
+    public decimal TotalPrctDzd { get => _totalPrctDzd; private set => SetField(ref _totalPrctDzd, value); }
+    public decimal TotalTcsDzd { get => _totalTcsDzd; private set => SetField(ref _totalTcsDzd, value); }
+    public decimal TotalDapsDzd { get => _totalDapsDzd; private set => SetField(ref _totalDapsDzd, value); }
+    public decimal TotalRpsDzd { get => _totalRpsDzd; private set => SetField(ref _totalRpsDzd, value); }
     public decimal TotalFraisDzd { get => _totalFraisDzd; private set => SetField(ref _totalFraisDzd, value); }
+
+    /// <summary>
+    /// Section 15 de la correction du 2026-10-02 : vrai lorsque le calcul s'est exécuté SANS anomalie
+    /// bloquante mais en utilisant au moins un taux PAR DÉFAUT de l'importation (ou en laissant une taxe
+    /// NON DÉTERMINÉE) — le résultat est alors "provisoire" (bandeau orange), à distinguer du cas
+    /// réellement bloquant (<see cref="HasBlockingAnomalies"/>, bandeau rouge, calcul non fiable du tout).
+    /// </summary>
+    public bool IsProvisionalCalculation { get => _isProvisionalCalculation; private set => SetField(ref _isProvisionalCalculation, value); }
+    public string ProvisionalMessageFr { get => _provisionalMessageFr; private set => SetField(ref _provisionalMessageFr, value); }
     public string ExchangeRateInfo { get => _exchangeRateInfo; private set => SetField(ref _exchangeRateInfo, value); }
     public string IncotermGuidance { get => _incotermGuidance; private set => SetField(ref _incotermGuidance, value); }
 
@@ -229,6 +253,55 @@ public sealed class ImportDetailViewModel : ObservableObject
     {
         get => _operation?.ManualTcsRatePercent;
         set { _operation.ManualTcsRatePercent = value; OnPropertyChanged(); }
+    }
+
+    // ------------------------------------------------------------------------------------------
+    // Revue du 2026-10-02 (CORRECTION URGENTE — "ne plus bloquer le calcul faute de RegulatoryRule") :
+    // TAUX DE TAXES PAR DÉFAUT de l'importation (Section 20 de la demande). Actifs par défaut
+    // (UseDefaultRatesWhenRuleMissing = true) : utilisés UNIQUEMENT lorsqu'aucune RegulatoryRule
+    // officielle n'a pu être résolue pour un article — jamais pour remplacer une règle officielle.
+    // ------------------------------------------------------------------------------------------
+    public bool UseDefaultRatesWhenRuleMissing
+    {
+        get => _operation?.UseDefaultRatesWhenRuleMissing ?? true;
+        set { _operation.UseDefaultRatesWhenRuleMissing = value; OnPropertyChanged(); }
+    }
+
+    public decimal DefaultDdRateValue
+    {
+        get => _operation?.DefaultDdRatePercent ?? 0m;
+        set { _operation.DefaultDdRatePercent = value; OnPropertyChanged(); }
+    }
+
+    public decimal DefaultCsRateValue
+    {
+        get => _operation?.DefaultCsRatePercent ?? 3.0m;
+        set { _operation.DefaultCsRatePercent = value; OnPropertyChanged(); }
+    }
+
+    public decimal DefaultPrctRateValue
+    {
+        get => _operation?.DefaultPrctRatePercent ?? 2.0m;
+        set { _operation.DefaultPrctRatePercent = value; OnPropertyChanged(); }
+    }
+
+    public decimal DefaultTvaRateValue
+    {
+        get => _operation?.DefaultTvaRatePercent ?? 19.0m;
+        set { _operation.DefaultTvaRatePercent = value; OnPropertyChanged(); }
+    }
+
+    public decimal DefaultTcsRateValue
+    {
+        get => _operation?.DefaultTcsRatePercent ?? 0m;
+        set { _operation.DefaultTcsRatePercent = value; OnPropertyChanged(); }
+    }
+
+    /// <summary>Montant RPS suggéré par défaut (DZD, informatif — jamais recalculé automatiquement, voir <see cref="AddFeeFromTemplate"/>).</summary>
+    public decimal DefaultRpsAmountValue
+    {
+        get => _operation?.DefaultRpsAmountDzd ?? 0m;
+        set { _operation.DefaultRpsAmountDzd = value; OnPropertyChanged(); }
     }
 
     public RelayCommand BackCommand { get; }
@@ -466,6 +539,38 @@ public sealed class ImportDetailViewModel : ObservableObject
             TotalAutresTaxesDzd = summary.TotalAdditionalTaxesDzd;
             TotalFraisDzd = summary.TotalImportFeesDzd;
 
+            // Section 14 : détail de chaque taxe additionnelle séparément (plus un seul total agrégé).
+            var allAppliedTaxes = summary.LineResults.SelectMany(l => l.CustomsOutcome.AdditionalTaxes).ToList();
+            decimal SumTax(string code) => allAppliedTaxes
+                .Where(t => string.Equals(t.TaxCode, code, StringComparison.OrdinalIgnoreCase))
+                .Sum(t => t.TaxAmountDzd);
+            TotalCsDzd = SumTax("CS");
+            TotalPrctDzd = SumTax("PRCT");
+            TotalTcsDzd = SumTax("TCS");
+            TotalDapsDzd = SumTax("DAPS");
+
+            var rpsFeeIds = _operation.Fees
+                .Where(f => string.Equals(f.FeeCategoryCode, "RPS", StringComparison.OrdinalIgnoreCase))
+                .Select(f => f.Id)
+                .ToHashSet();
+            TotalRpsDzd = summary.LineResults
+                .SelectMany(l => l.FeeAllocations)
+                .Where(a => rpsFeeIds.Contains(a.FeeId))
+                .Sum(a => a.AllocatedAmountDzd);
+
+            // Section 15 : distinguer un calcul réellement bloqué (bandeau rouge, inchangé) d'un calcul
+            // PROVISOIRE (bandeau orange) qui s'est exécuté avec succès mais en utilisant au moins un taux
+            // PAR DÉFAUT de l'importation ou une taxe laissée NON DÉTERMINÉE (jamais un blocage — Section
+            // 1 de la correction du 2026-10-02 : l'absence de RegulatoryRule ne bloque plus le calcul).
+            bool usedDefaultOrUndeterminedRates = summary.Anomalies.Any(a =>
+                a.AnomalyCode.EndsWith("_DEFAULT_RATE_USED", StringComparison.OrdinalIgnoreCase) ||
+                a.AnomalyCode.EndsWith("_RATE_NOT_DETERMINED", StringComparison.OrdinalIgnoreCase) ||
+                a.AnomalyCode is "REGULATORY_RULE_NOT_FOUND" or "MISSING_HS_CODE");
+            IsProvisionalCalculation = !summary.HasBlockingAnomalies && usedDefaultOrUndeterminedRates;
+            ProvisionalMessageFr = IsProvisionalCalculation
+                ? "⚠ Calcul provisoire : certaines règles réglementaires n'ont pas été trouvées. Des taux par défaut de l'importation ont été utilisés (ou certaines taxes restent non déterminées). Vérifiez les données avant de considérer le résultat comme définitif."
+                : string.Empty;
+
             _operationRepository.SaveOperation(_operation);
 
             string versionLabel = summary.LineResults
@@ -476,10 +581,27 @@ public sealed class ImportDetailViewModel : ObservableObject
 
             _snapshotRepository.SaveSnapshot(_company.Id, _session.CurrentUser?.Id ?? Guid.Empty, versionLabel, summary);
 
+            // Section 22 de la correction du 2026-10-02 : trace explicitement dans l'audit chaque taux PAR
+            // DÉFAUT de l'importation réellement utilisé pour ce calcul (jamais une simple absence silencieuse).
+            string defaultRatesAuditNote = string.Empty;
+            if (IsProvisionalCalculation)
+            {
+                var defaultUsageByCode = summary.Anomalies
+                    .Where(a => a.AnomalyCode.EndsWith("_DEFAULT_RATE_USED", StringComparison.OrdinalIgnoreCase))
+                    .GroupBy(a => a.AnomalyCode)
+                    .Select(g => $"{g.Key} x{g.Count()}")
+                    .ToList();
+                if (defaultUsageByCode.Count > 0)
+                {
+                    defaultRatesAuditNote = $" — Taux par défaut (DEFAULT_IMPORT) utilisés : {string.Join(", ", defaultUsageByCode)}.";
+                }
+            }
+
             _audit.RecordAction(_company.Id, _session.CurrentUser?.Id ?? Guid.Empty, _session.CurrentUser?.DisplayName ?? "Inconnu",
                 "CALCULATION", "EXECUTE_CALCULATION",
-                newValue: $"{summary.TotalRealCostOfGoodsDzd:N2} DZD — {summary.Anomalies.Count} anomalie(s)",
-                importOperationId: _operation.Id);
+                newValue: $"{summary.TotalRealCostOfGoodsDzd:N2} DZD — {summary.Anomalies.Count} anomalie(s){defaultRatesAuditNote}",
+                importOperationId: _operation.Id,
+                regulatoryVersionCode: IsProvisionalCalculation ? "DEFAULT_IMPORT" : null);
 
             RefreshExchangeRateInfo();
             RefreshAuthorizationExchangeRateInfo();
@@ -492,9 +614,13 @@ public sealed class ImportDetailViewModel : ObservableObject
             MessageBox.Show(
                 summary.HasBlockingAnomalies
                     ? "Calcul exécuté avec des anomalies BLOQUANTES : le coût de revient ne peut pas être considéré comme définitif tant qu'elles ne sont pas résolues."
-                    : $"Calcul exécuté avec succès.\nCoût total de revient : {summary.TotalRealCostOfGoodsDzd:N2} DZD.",
+                    : IsProvisionalCalculation
+                        ? $"{ProvisionalMessageFr}\nCoût total de revient (provisoire) : {summary.TotalRealCostOfGoodsDzd:N2} DZD."
+                        : $"Calcul exécuté avec succès.\nCoût total de revient : {summary.TotalRealCostOfGoodsDzd:N2} DZD.",
                 "CIMP — Résultat du calcul", MessageBoxButton.OK,
-                summary.HasBlockingAnomalies ? MessageBoxImage.Warning : MessageBoxImage.Information);
+                summary.HasBlockingAnomalies ? MessageBoxImage.Warning
+                    : IsProvisionalCalculation ? MessageBoxImage.Warning
+                    : MessageBoxImage.Information);
         }
         catch (Exception ex)
         {
