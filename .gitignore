@@ -1,0 +1,53 @@
+# CIMP — .gitignore (préparation V1 publiable)
+# Objectif : ne jamais committer d'artefacts de build, de publication ou de fichiers personnels de
+# développeur (Étape 1/5 de la préparation de version — voir rapport de packaging).
+
+# Artefacts de compilation .NET
+[Bb]in/
+[Oo]bj/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+
+# Visual Studio
+.vs/
+*.VC.db
+*.VC.VC.opendb
+
+# Résultats de publication (générés par dotnet publish / scripts/publish-release.ps1)
+publish/
+**/bin/Release/**/publish/
+
+# Résultats de tests
+TestResults/
+*.trx
+*.coverage
+*.coveragexml
+
+# Package de distribution final (créé localement par scripts/publish-release.ps1, jamais versionné)
+/release/
+*.zip
+!docs/**/*.zip
+
+# Base de données locale SQLite créée au premier lancement (jamais une donnée à versionner)
+*.db
+*.db-shm
+*.db-wal
+
+# Fichiers temporaires de l'éditeur / OS
+*.swp
+*~
+.DS_Store
+Thumbs.db
+
+# Node.js (WebPreview — référence fonctionnelle, dépendances non versionnées)
+node_modules/
+npm-debug.log*
+
+# Secrets locaux éventuels (jamais versionnés)
+*.pfx
+*.snk
+appsettings.*.local.json
+.env
+.env.*

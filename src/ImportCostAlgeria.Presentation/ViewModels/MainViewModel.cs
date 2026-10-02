@@ -183,8 +183,19 @@ public sealed class MainViewModel : ObservableObject
 
     private void ShowAbout()
     {
+        // Version affichée dynamiquement depuis les métadonnées d'assembly (System.Reflection.AssemblyVersion
+        // / AssemblyFileVersion, voir <Version> dans ImportCostAlgeria.Presentation.csproj) — jamais codée en
+        // dur ici, afin qu'elle reste automatiquement synchronisée avec la version réellement publiée, et sans
+        // jamais exposer de chemin local, de nom d'utilisateur Windows, de branche Git ni d'information de
+        // développement (préparation V1 publiable — voir packaging/README.txt).
+        var asm = System.Reflection.Assembly.GetExecutingAssembly();
+        var version = asm.GetName().Version;
+        string versionDisplay = version != null
+            ? $"{version.Major}.{version.Minor}.{version.Build}"
+            : "1.0.0";
+
         MessageBox.Show(
-            "CIMP — Coût d'Importation Maître Pro (Algérie)\n\n" +
+            $"CIMP — Coût d'Importation Algérie\nVersion {versionDisplay}\n\n" +
             "Calcul de la liquidation douanière, des taxes et du coût de revient réel des importations, " +
             "avec traçabilité réglementaire complète (Journal Officiel, articles de loi).",
             "À propos de CIMP", MessageBoxButton.OK, MessageBoxImage.Information);
