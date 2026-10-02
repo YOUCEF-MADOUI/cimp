@@ -79,7 +79,29 @@ public partial class App : Application
         var loginViewModel = Services.GetRequiredService<LoginViewModel>();
         var loginWindow = new LoginWindow { DataContext = loginViewModel };
 
-        bool? loginResult = loginWindow.ShowDialog();
+        // Section 4.3 (demande utilisateur — "Se souvenir de moi") : tente une reconnexion automatique si
+        // un identifiant a été mémorisé précédemment (jamais journalisé en clair : seul le résultat
+        // booléen de la tentative apparaît dans les traces de diagnostic, jamais le mot de passe lui-même).
+        bool autoLoginSucceeded = false;
+        string? rememberedPassword = loginViewModel.TryLoadRememberedCredential();
+        if (rememberedPassword != null)
+        {
+            System.Diagnostics.Debug.WriteLine("[CIMP][STARTUP] Identifiant mémorisé détecté, tentative de reconnexion automatique...");
+            autoLoginSucceeded = loginViewModel.TryLogin(rememberedPassword);
+            System.Diagnostics.Debug.WriteLine(
+                $"[CIMP][STARTUP] Reconnexion automatique : {(autoLoginSucceeded ? "réussie" : "échouée (secret mémorisé invalidé)")}.");
+
+            if (!autoLoginSucceeded)
+            {
+                // Le mot de passe mémorisé n'est plus valide (ex : modifié depuis) : LoginViewModel.TryLogin
+                // a déjà invalidé/supprimé l'ancien secret (Section 4.3). On réinitialise la case à cocher
+                // pour refléter fidèlement qu'il n'y a plus rien de mémorisé, et on laisse l'utilisateur
+                // ressaisir son mot de passe manuellement (le nom d'utilisateur reste préempli).
+                loginViewModel.RememberMe = false;
+            }
+        }
+
+        bool? loginResult = autoLoginSucceeded ? true : loginWindow.ShowDialog();
         System.Diagnostics.Debug.WriteLine(
             $"[CIMP][STARTUP] LoginWindow fermée. loginResult={loginResult}, " +
             $"AuthenticatedUser={(loginViewModel.AuthenticatedUser?.Username ?? "null")}");
@@ -107,6 +129,12 @@ public partial class App : Application
 
             bool? changePasswordResult = changePasswordWindow.ShowDialog();
             System.Diagnostics.Debug.WriteLine($"[CIMP][STARTUP] ChangePasswordWindow fermée. résultat={changePasswordResult}");
+
+            if (changePasswordResult == true)
+            {
+                // Section 4.3 : le changement du mot de passe initial invalide tout secret mémorisé.
+                Services.GetRequiredService<RememberedLoginStore>().Clear();
+            }
 
             if (changePasswordResult != true)
             {
@@ -164,6 +192,10 @@ public partial class App : Application
         // Audit (persistant)
         services.AddSingleton<IAuditLogStore>(sp => new EfAuditLogStore(sp.GetRequiredService<ICimpDbContextFactory>()));
         services.AddSingleton<AuditTrailService>();
+
+        // Section 4 (demande utilisateur — "Se souvenir de moi") : stockage sécurisé (DPAPI) de
+        // l'identifiant mémorisé, local au profil Windows de l'utilisateur courant.
+        services.AddSingleton<RememberedLoginStore>();
 
         // Excel (Priorité 3)
         services.AddSingleton<IMappingTemplateStore>(sp => new EfMappingTemplateStore(sp.GetRequiredService<ICimpDbContextFactory>()));

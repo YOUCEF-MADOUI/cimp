@@ -15,11 +15,14 @@ namespace ImportCostAlgeria.Presentation.ViewModels;
 /// </summary>
 public sealed class ImportLineRowViewModel : ObservableObject
 {
+    private readonly UndoRedoManager? _undoRedo;
+
     public ImportLine Line { get; }
 
-    public ImportLineRowViewModel(ImportLine line)
+    public ImportLineRowViewModel(ImportLine line, UndoRedoManager? undoRedo = null)
     {
         Line = line;
+        _undoRedo = undoRedo;
     }
 
     public string ProductReference
@@ -34,16 +37,32 @@ public sealed class ImportLineRowViewModel : ObservableObject
         set { Line.Designation = value; OnPropertyChanged(); }
     }
 
+    /// <summary>Section 5.1 (exemple explicite : "modification d'une quantité"), undo-able.</summary>
     public decimal Quantity
     {
         get => Line.Quantity;
-        set { Line.Quantity = value; OnPropertyChanged(); }
+        set
+        {
+            decimal oldValue = Line.Quantity;
+            if (oldValue == value) return;
+            Line.Quantity = value;
+            OnPropertyChanged();
+            _undoRedo?.RecordFieldChange($"Quantité de '{Line.ProductReference}'", v => { Line.Quantity = v; OnPropertyChanged(nameof(Quantity)); }, oldValue, value);
+        }
     }
 
+    /// <summary>Section 5.1 (exemple explicite : "modification d'un prix"), undo-able.</summary>
     public decimal UnitPurchasePrice
     {
         get => Line.UnitPurchasePrice;
-        set { Line.UnitPurchasePrice = value; OnPropertyChanged(); }
+        set
+        {
+            decimal oldValue = Line.UnitPurchasePrice;
+            if (oldValue == value) return;
+            Line.UnitPurchasePrice = value;
+            OnPropertyChanged();
+            _undoRedo?.RecordFieldChange($"Prix d'achat de '{Line.ProductReference}'", v => { Line.UnitPurchasePrice = v; OnPropertyChanged(nameof(UnitPurchasePrice)); }, oldValue, value);
+        }
     }
 
     public string CurrencyCode
@@ -52,10 +71,18 @@ public sealed class ImportLineRowViewModel : ObservableObject
         set { Line.CurrencyCode = value; OnPropertyChanged(); }
     }
 
+    /// <summary>Section 5.1 (exemple explicite : "modification d'un pays"), undo-able.</summary>
     public string? OriginCountryIso2
     {
         get => Line.OriginCountryIso2;
-        set { Line.OriginCountryIso2 = value; OnPropertyChanged(); }
+        set
+        {
+            string? oldValue = Line.OriginCountryIso2;
+            if (oldValue == value) return;
+            Line.OriginCountryIso2 = value;
+            OnPropertyChanged();
+            _undoRedo?.RecordFieldChange($"Pays d'origine de '{Line.ProductReference}'", v => { Line.OriginCountryIso2 = v; OnPropertyChanged(nameof(OriginCountryIso2)); }, oldValue, value);
+        }
     }
 
     public string? HsCodeConfirmed10
@@ -120,10 +147,20 @@ public sealed class ImportLineRowViewModel : ObservableObject
         get => Line.SalePriceDzd;
         set
         {
+            decimal? oldValue = Line.SalePriceDzd;
+            if (oldValue == value) return;
             Line.SalePriceDzd = value;
             OnPropertyChanged();
             OnPropertyChanged(nameof(ProfitDzd));
             OnPropertyChanged(nameof(ProfitPercent));
+            // Section 5.1 (exemple explicite : "modification du prix de vente"), undo-able.
+            _undoRedo?.RecordFieldChange($"Prix de vente de '{Line.ProductReference}'", v =>
+            {
+                Line.SalePriceDzd = v;
+                OnPropertyChanged(nameof(SalePriceDzd));
+                OnPropertyChanged(nameof(ProfitDzd));
+                OnPropertyChanged(nameof(ProfitPercent));
+            }, oldValue, value);
         }
     }
 

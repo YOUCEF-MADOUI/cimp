@@ -83,9 +83,20 @@ public sealed class ImportDetailViewModel : ObservableObject
         // Revue du 2026-10-02 (REFONTE INTERFACE, Section 10) : masquage dynamique des colonnes
         // facultatives (IA/fiscales) dès que l'ensemble des articles affichés change.
         Lines.CollectionChanged += (_, __) => RecomputeDynamicColumnVisibility();
-        Fees = new ObservableCollection<ImportFee>();
+        Fees = new ObservableCollection<FeeRowViewModel>();
         Anomalies = new ObservableCollection<CalculationAnomaly>();
         FeeTemplates = ImportFeeCatalog.StandardTemplates.ToArray();
+
+        // Section 5.1 (demande utilisateur — menu "Édition", Annuler/Rétablir) : historique réel des
+        // modifications de cet écran (prix, quantité, prix de vente, pays, frais, méthode de répartition,
+        // taux). Vidé à chaque Initialize() (changement d'importation affichée) : un Undo ne doit jamais
+        // s'appliquer à une AUTRE importation que celle actuellement visible à l'écran.
+        UndoRedo = new UndoRedoManager();
+        UndoRedo.StateChanged += (_, __) =>
+        {
+            UndoCommand.RaiseCanExecuteChanged();
+            RedoCommand.RaiseCanExecuteChanged();
+        };
 
         BackCommand = new RelayCommand(() => _parentList?.NavigateBackToList?.Invoke());
         AddLineCommand = new RelayCommand(AddManualLine);
@@ -97,7 +108,9 @@ public sealed class ImportDetailViewModel : ObservableObject
         ConfirmHsCommand = new RelayCommand<ImportLineRowViewModel>(OpenHsConfirmDialog);
         ViewDetailCommand = new RelayCommand<ImportLineRowViewModel>(OpenLineDetailDialog);
         AddFeeCommand = new RelayCommand(AddFeeFromTemplate);
-        RemoveFeeCommand = new RelayCommand<ImportFee>(RemoveFee);
+        RemoveFeeCommand = new RelayCommand<FeeRowViewModel>(RemoveFee);
+        UndoCommand = new RelayCommand(() => UndoRedo.Undo(), () => UndoRedo.CanUndo);
+        RedoCommand = new RelayCommand(() => UndoRedo.Redo(), () => UndoRedo.CanRedo);
     }
 
     public void Initialize(Company company, ImportOperation operation, ImportationsViewModel parentList)
@@ -108,13 +121,17 @@ public sealed class ImportDetailViewModel : ObservableObject
 
         HeaderLabel = $"Importation {operation.ImportNumber} — {operation.SupplierName} — Incoterm {operation.Incoterm}";
 
+        // Section 5.1 : un Undo/Redo ne doit JAMAIS s'appliquer à une autre importation que celle
+        // actuellement affichée — l'historique est donc systématiquement vidé à chaque changement d'écran.
+        UndoRedo.Clear();
+
         Lines.Clear();
         foreach (var line in operation.Lines.OrderBy(l => l.LineNumber))
-            Lines.Add(new ImportLineRowViewModel(line));
+            Lines.Add(new ImportLineRowViewModel(line, UndoRedo));
 
         Fees.Clear();
         foreach (var fee in operation.Fees)
-            Fees.Add(fee);
+            Fees.Add(new FeeRowViewModel(fee, UndoRedo));
 
         Anomalies.Clear();
         _lastSummary = null;
@@ -132,8 +149,13 @@ public sealed class ImportDetailViewModel : ObservableObject
     public string HeaderLabel { get => _headerLabel; private set => SetField(ref _headerLabel, value); }
 
     public ObservableCollection<ImportLineRowViewModel> Lines { get; }
-    public ObservableCollection<ImportFee> Fees { get; }
+    public ObservableCollection<FeeRowViewModel> Fees { get; }
     public ObservableCollection<CalculationAnomaly> Anomalies { get; }
+
+    /// <summary>Section 5.1 (menu "Édition") : historique Annuler/Rétablir de cet écran.</summary>
+    public UndoRedoManager UndoRedo { get; private set; } = null!;
+    public RelayCommand UndoCommand { get; private set; } = null!;
+    public RelayCommand RedoCommand { get; private set; } = null!;
     public StandardFeeTemplate[] FeeTemplates { get; }
     /// <summary>
     /// Revue du 2026-10-02 (Section 19 — "La liste déroulante Méthode de répartition est vide") : expose
@@ -278,10 +300,18 @@ public sealed class ImportDetailViewModel : ObservableObject
         }
     }
 
+    /// <summary>Section 5.1 (exemple explicite : "changement de taux"), undo-able.</summary>
     public decimal? ManualRateValue
     {
         get => _operation?.ManualExchangeRateOverride;
-        set { _operation.ManualExchangeRateOverride = value; OnPropertyChanged(); }
+        set
+        {
+            decimal? oldValue = _operation.ManualExchangeRateOverride;
+            if (oldValue == value) return;
+            _operation.ManualExchangeRateOverride = value;
+            OnPropertyChanged();
+            UndoRedo?.RecordFieldChange("Taux de change manuel", v => { _operation.ManualExchangeRateOverride = v; OnPropertyChanged(nameof(ManualRateValue)); }, oldValue, value);
+        }
     }
 
     /// <summary>
@@ -480,7 +510,7 @@ public sealed class ImportDetailViewModel : ObservableObject
             CurrencyCode = _operation.MainCurrencyCode,
             OriginCountryIso2 = _operation.DefaultOriginCountryIso2
         };
-        Lines.Add(new ImportLineRowViewModel(line));
+        Lines.Add(new ImportLineRowViewModel(line, UndoRedo));
     }
 
     private void RemoveLine(ImportLineRowViewModel? row)
@@ -506,7 +536,7 @@ public sealed class ImportDetailViewModel : ObservableObject
         bool isCfrFreightAlreadyIncluded = _operation.Incoterm == IncotermCode.CFR
             && template.CategoryCode.Contains("FRET", StringComparison.OrdinalIgnoreCase);
 
-        Fees.Add(new ImportFee
+        var fee = new ImportFee
         {
             FeeCategoryCode = template.CategoryCode,
             FeeName = template.DefaultLabelFr,
@@ -518,10 +548,11 @@ public sealed class ImportDetailViewModel : ObservableObject
                 ? CustomsAdjustmentTreatment.IncludedInInvoicePrice
                 : template.DefaultCustomsTreatment,
             IncludeInCostOfGoods = template.DefaultIncludeInCostOfGoods
-        });
+        };
+        Fees.Add(new FeeRowViewModel(fee, UndoRedo));
     }
 
-    private void RemoveFee(ImportFee? fee)
+    private void RemoveFee(FeeRowViewModel? fee)
     {
         if (fee == null) return;
         _session.RequireNotConsultation("supprimer un frais");
@@ -540,7 +571,7 @@ public sealed class ImportDetailViewModel : ObservableObject
             foreach (var line in wizardVm.ImportedLines)
             {
                 line.LineNumber = nextNumber++;
-                Lines.Add(new ImportLineRowViewModel(line));
+                Lines.Add(new ImportLineRowViewModel(line, UndoRedo));
             }
 
             _audit.RecordAction(_company.Id, _session.CurrentUser?.Id ?? Guid.Empty, _session.CurrentUser?.DisplayName ?? "Inconnu",
@@ -611,7 +642,7 @@ public sealed class ImportDetailViewModel : ObservableObject
             _operation.Lines.Clear();
             _operation.Lines.AddRange(Lines.Select(r => r.Line));
             _operation.Fees.Clear();
-            _operation.Fees.AddRange(Fees);
+            _operation.Fees.AddRange(Fees.Select(f => f.Fee));
 
             var orchestrator = _engineFactory.CreateOrchestrator();
             var summary = orchestrator.ExecuteCalculation(_company, _operation);

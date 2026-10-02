@@ -46,6 +46,7 @@
             <conv:MoneyWithFixedCurrencyConverter x:Key="MoneyDaConverter" />
             <conv:MoneyWithDynamicCurrencyConverter x:Key="MoneyDynamicConverter" />
             <conv:CurrencyCodeToSymbolConverter x:Key="CurrencyCodeToSymbolConverter" />
+            <conv:CanonicalExcelFieldToLabelConverter x:Key="CanonicalExcelFieldToLabelConverter" />
 
             <Style TargetType="Button">
                 <Setter Property="Padding" Value="10,5" />

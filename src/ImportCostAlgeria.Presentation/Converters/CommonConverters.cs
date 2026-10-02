@@ -4,8 +4,24 @@ using System.Windows;
 using System.Windows.Data;
 using System.Windows.Media;
 using ImportCostAlgeria.Core.Services;
+using ImportCostAlgeria.ExcelEngine;
 
 namespace ImportCostAlgeria.Presentation.Converters;
+
+/// <summary>
+/// Revue du 2026-10-02 (demande utilisateur — Section 1 : libellés lisibles dans l'écran "Analyse /
+/// Mapping des colonnes") : affiche le libellé utilisateur français d'un <see cref="CanonicalExcelField"/>
+/// (ex: "Prix de vente DA") au lieu du nom brut de l'énumération C#. Logique déléguée à
+/// <see cref="CanonicalExcelFieldLabels"/> (ImportCostAlgeria.ExcelEngine, testable hors WPF).
+/// </summary>
+public sealed class CanonicalExcelFieldToLabelConverter : IValueConverter
+{
+    public object Convert(object? value, Type targetType, object? parameter, CultureInfo culture) =>
+        value is CanonicalExcelField field ? CanonicalExcelFieldLabels.LabelFor(field) : value ?? string.Empty;
+
+    public object ConvertBack(object value, Type targetType, object? parameter, CultureInfo culture) =>
+        throw new NotSupportedException();
+}
 
 /// <summary>
 /// Revue du 2026-10-02 (REFONTE INTERFACE — Section 6/7/13) : convertit un montant <see cref="decimal"/>

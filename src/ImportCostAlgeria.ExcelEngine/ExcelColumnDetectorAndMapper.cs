@@ -14,6 +14,7 @@ public enum CanonicalExcelField
     Designation,        // Désignation (DESIGNATION, DESIGNATION PRODUIT)
     Quantity,           // Quantité (QTE, QUANTITE)
     UnitPurchasePrice,  // Prix d'achat (PU, PRIX UNIT, PRIX ACHAT)
+    SalePrice,          // Prix de vente DA (PU uniquement, jamais un total de ligne) — PRIX VENTE, PV
     Currency,           // Devise
     HsCode,             // Code SH (SH, HS CODE, CODE DOUANE)
     OriginCountry,      // Pays d'origine (ORIGINE, COUNTRY)
@@ -24,6 +25,39 @@ public enum CanonicalExcelField
     Freight,            // Fret
     Insurance,          // Assurance
     Other               // Autre / Ignoré
+}
+
+/// <summary>
+/// Libellés utilisateur (français) des champs canoniques de mapping Excel (Section 1 de la demande
+/// utilisateur — l'écran "Analyse / Mapping des colonnes" doit afficher des libellés lisibles, ex: "Prix
+/// de vente DA" plutôt que le nom brut de l'énumération <see cref="CanonicalExcelField.SalePrice"/>).
+/// Centralisé ici (même projet que l'énumération) pour rester utilisable aussi bien par le convertisseur
+/// WPF (ImportCostAlgeria.Presentation) que par les tests unitaires multiplateformes.
+/// </summary>
+public static class CanonicalExcelFieldLabels
+{
+    private static readonly IReadOnlyDictionary<CanonicalExcelField, string> LabelsFr = new Dictionary<CanonicalExcelField, string>
+    {
+        [CanonicalExcelField.Unmapped] = "Non mappée",
+        [CanonicalExcelField.ProductReference] = "Référence",
+        [CanonicalExcelField.Designation] = "Désignation",
+        [CanonicalExcelField.Quantity] = "Quantité",
+        [CanonicalExcelField.UnitPurchasePrice] = "Prix d'achat",
+        [CanonicalExcelField.SalePrice] = "Prix de vente DA",
+        [CanonicalExcelField.Currency] = "Devise",
+        [CanonicalExcelField.HsCode] = "Code SH",
+        [CanonicalExcelField.OriginCountry] = "Pays d'origine",
+        [CanonicalExcelField.ExcelDutyRate] = "Droit de douane (Excel)",
+        [CanonicalExcelField.Incoterm] = "Incoterm",
+        [CanonicalExcelField.GrossWeightKg] = "Poids brut (kg)",
+        [CanonicalExcelField.VolumeM3] = "Volume (m³)",
+        [CanonicalExcelField.Freight] = "Fret",
+        [CanonicalExcelField.Insurance] = "Assurance",
+        [CanonicalExcelField.Other] = "Autre / Ignoré"
+    };
+
+    public static string LabelFor(CanonicalExcelField field) =>
+        LabelsFr.TryGetValue(field, out var label) ? label : field.ToString();
 }
 
 public sealed record DetectedColumnMapping(
@@ -86,6 +120,16 @@ public sealed class ExcelColumnDetectorAndMapper
         ["PRICE"] = CanonicalExcelField.UnitPurchasePrice,
         ["UNIT PRICE"] = CanonicalExcelField.UnitPurchasePrice,
         ["UNIT COST"] = CanonicalExcelField.UnitPurchasePrice,
+        // Revue du 2026-10-02 (demande utilisateur, Section 1 — "Prix de vente" manquant du mapping) :
+        // PRIX UNITAIRE de vente (JAMAIS un total de ligne) -> ImportLine.SalePriceDzd.
+        ["PRIX VENTE"] = CanonicalExcelField.SalePrice,
+        ["PRIX DE VENTE"] = CanonicalExcelField.SalePrice,
+        ["PRIX DE VENTE DA"] = CanonicalExcelField.SalePrice,
+        ["PV"] = CanonicalExcelField.SalePrice,
+        ["SALE PRICE"] = CanonicalExcelField.SalePrice,
+        ["SELLING PRICE"] = CanonicalExcelField.SalePrice,
+        ["PRIX VENTE UNITAIRE"] = CanonicalExcelField.SalePrice,
+        ["PRIX DE VENTE UNITAIRE"] = CanonicalExcelField.SalePrice,
         ["DEVISE"] = CanonicalExcelField.Currency,
         ["CURRENCY"] = CanonicalExcelField.Currency,
         ["CCY"] = CanonicalExcelField.Currency,
@@ -116,6 +160,7 @@ public sealed class ExcelColumnDetectorAndMapper
     private static readonly IReadOnlyList<CanonicalExcelField> InteractiveChoices = new[]
     {
         CanonicalExcelField.UnitPurchasePrice, // [ Prix d'achat ]
+        CanonicalExcelField.SalePrice,         // [ Prix de vente DA ]
         CanonicalExcelField.Quantity,          // [ Quantité ]
         CanonicalExcelField.Freight,           // [ Fret ]
         CanonicalExcelField.Insurance,         // [ Assurance ]

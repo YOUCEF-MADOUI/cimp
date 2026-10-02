@@ -191,6 +191,12 @@ public sealed class ExcelImporterService
             decimal? excelDuty = ParseNullableDecimal(FindValue(row, CanonicalExcelField.ExcelDutyRate));
             decimal? grossWeight = ParseNullableDecimal(FindValue(row, CanonicalExcelField.GrossWeightKg));
             decimal? volume = ParseNullableDecimal(FindValue(row, CanonicalExcelField.VolumeM3));
+            // Revue du 2026-10-02 (demande utilisateur, Section 1/11) : "Prix de vente" est un PRIX
+            // UNITAIRE en DA — JAMAIS un total de ligne (ex: QTE=100, Prix vente=600 DA -> la colonne
+            // reste 600, pas 60 000). Aucune conversion de devise n'est appliquée : le prix de vente est
+            // toujours directement saisi/attendu en DA (SalePriceDzd), quelle que soit la devise de facture
+            // de la ligne (prix d'achat).
+            decimal? salePriceDzd = ParseNullableDecimal(FindValue(row, CanonicalExcelField.SalePrice));
 
             if (quantity <= 0m)
             {
@@ -217,7 +223,8 @@ public sealed class ExcelImporterService
                 OriginCountryIso2 = origin?.ToUpperInvariant(),
                 ExcelDutyRatePercent = excelDuty,
                 LineGrossWeightKg = grossWeight,
-                LineVolumeM3 = volume
+                LineVolumeM3 = volume,
+                SalePriceDzd = salePriceDzd
             });
         }
 

@@ -1,10 +1,11 @@
 <Window x:Class="ImportCostAlgeria.Presentation.Views.LoginWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="CIMP — Connexion" Height="320" Width="420"
+        Title="CIMP — Connexion" Height="350" Width="420"
         WindowStartupLocation="CenterScreen" ResizeMode="NoResize">
     <Grid Margin="24">
         <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
@@ -24,9 +25,13 @@
         <Label Grid.Row="3" Content="Mot de passe" Margin="4,10,4,0" />
         <PasswordBox x:Name="PasswordBoxControl" Grid.Row="3" Margin="0,36,0,0" Padding="4,3" />
 
-        <TextBlock Grid.Row="4" Text="{Binding ErrorMessage}" Foreground="Red" TextWrapping="Wrap" Margin="4,8,4,0" />
+        <!-- Section 4.1 de la demande utilisateur : option "Se souvenir de moi". -->
+        <CheckBox Grid.Row="4" Content="Se souvenir de moi" Margin="4,12,0,0"
+                  IsChecked="{Binding RememberMe}" />
 
-        <StackPanel Grid.Row="6" Orientation="Horizontal" HorizontalAlignment="Right">
+        <TextBlock Grid.Row="5" Text="{Binding ErrorMessage}" Foreground="Red" TextWrapping="Wrap" Margin="4,8,4,0" />
+
+        <StackPanel Grid.Row="7" Orientation="Horizontal" HorizontalAlignment="Right">
             <Button Content="Se connecter" IsDefault="True" Click="OnLoginClick" />
             <Button Content="Quitter" Click="OnCancelClick" />
         </StackPanel>

@@ -471,6 +471,12 @@ public sealed class CostAllocationEngine
         switch (fee.AllocationMethod)
         {
             case FeeAllocationMethod.ByValue:
+            // Revue du 2026-10-02 (Section 3.4.D) : "Pourcentage" applique le même taux à CHAQUE ligne
+            // proportionnellement à sa propre valeur d'achat — l'assiette de répartition est donc
+            // identique à "Par valeur" (feeDzd ayant déjà été calculé comme Base_totale × taux/100 dans
+            // ImportCalculationOrchestrator, cette pondération reproduit exactement, pour chaque ligne,
+            // LinePurchaseDzd × taux/100).
+            case FeeAllocationMethod.Percentage:
                 for (int i = 0; i < linesWithPurchaseDzd.Count; i++)
                     weights[i] = linesWithPurchaseDzd[i].LinePurchaseDzd;
                 break;
@@ -507,18 +513,20 @@ public sealed class CostAllocationEngine
                 break;
 
             case FeeAllocationMethod.FixedAmount:
-            case FeeAllocationMethod.Percentage:
+                // Section 3.4.C : "Montant fixe" répartit le montant SAISI À L'IDENTIQUE (poids égaux)
+                // entre toutes les lignes concernées — comportement déjà existant, conservé tel quel
+                // (ex: RPS, frais bancaires forfaitaires non proportionnels à la valeur/quantité).
                 for (int i = 0; i < linesWithPurchaseDzd.Count; i++)
                     weights[i] = 1m;
                 break;
 
             case FeeAllocationMethod.Manual:
-                for (int i = 0; i < linesWithPurchaseDzd.Count; i++)
-                {
-                    var line = linesWithPurchaseDzd[i].Line;
-                    weights[i] = line.ManualFeeAllocationsDzd.TryGetValue(fee.Id, out decimal manualVal) ? manualVal : 0m;
-                }
-                break;
+                // Revue du 2026-10-02 (Section 3.4.E) : la méthode "Manuelle" n'est PAS une pondération
+                // comme les autres — chaque ligne doit recevoir EXACTEMENT le montant que l'utilisateur lui
+                // a affecté (ImportLine.ManualFeeAllocationsDzd), jamais une valeur recalculée/normalisée
+                // pour "forcer" la somme à correspondre au frais total. Traitée dans une branche dédiée
+                // ci-dessous (pas de répartition proportionnelle par poids).
+                return AllocateManualFee(fee, feeAmountDzd, linesWithPurchaseDzd, anomalies);
         }
 
         decimal totalWeight = weights.Sum();
@@ -550,6 +558,50 @@ public sealed class CostAllocationEngine
                 AllocatedAmountDzd: allocated,
                 IncludedInCustomsValue: fee.IncludeInCustomsValue,
                 IncludedInCostOfGoods: fee.IncludeInCostOfGoods);
+        }
+
+        return result;
+    }
+
+    /// <summary>
+    /// Section 3.4.E (demande utilisateur) : répartition "Manuelle" — chaque ligne reçoit EXACTEMENT le
+    /// montant affecté par l'utilisateur (<see cref="ImportLine.ManualFeeAllocationsDzd"/>), jamais une
+    /// valeur recalculée/normalisée. Si la somme des montants affectés ne correspond pas EXACTEMENT au
+    /// montant total du frais, une anomalie explicite est levée — SANS jamais corriger silencieusement la
+    /// répartition de l'utilisateur.
+    /// </summary>
+    private static IReadOnlyDictionary<Guid, FeeAllocationTrace> AllocateManualFee(
+        ImportFee fee,
+        decimal feeAmountDzd,
+        IReadOnlyList<(ImportLine Line, decimal LinePurchaseDzd)> linesWithPurchaseDzd,
+        List<CalculationAnomaly> anomalies)
+    {
+        var result = new Dictionary<Guid, FeeAllocationTrace>();
+        decimal totalManualAllocated = 0m;
+
+        foreach (var (line, _) in linesWithPurchaseDzd)
+        {
+            decimal manualVal = line.ManualFeeAllocationsDzd.TryGetValue(fee.Id, out decimal v) ? v : 0m;
+            totalManualAllocated += manualVal;
+
+            result[line.Id] = new FeeAllocationTrace(
+                FeeId: fee.Id,
+                FeeName: fee.FeeName,
+                MethodUsed: fee.AllocationMethod,
+                ShareRatio: feeAmountDzd != 0m ? Math.Round(manualVal / feeAmountDzd, 8, MidpointRounding.AwayFromZero) : 0m,
+                AllocatedAmountDzd: CurrencyCalculator.RoundDzd(manualVal),
+                IncludedInCustomsValue: fee.IncludeInCustomsValue,
+                IncludedInCostOfGoods: fee.IncludeInCostOfGoods);
+        }
+
+        decimal roundedTotalManualAllocated = CurrencyCalculator.RoundDzd(totalManualAllocated);
+        decimal roundedFeeAmount = CurrencyCalculator.RoundDzd(feeAmountDzd);
+        if (roundedTotalManualAllocated != roundedFeeAmount)
+        {
+            anomalies.Add(new CalculationAnomaly(
+                AnomalySeverity.Erreur,
+                "MANUAL_FEE_ALLOCATION_INCOMPLETE",
+                $"⚠️ Le montant des frais n'est pas entièrement réparti. Frais '{fee.FeeName}' : total affecté manuellement {roundedTotalManualAllocated:N2} DZD pour un frais total de {roundedFeeAmount:N2} DZD."));
         }
 
         return result;
@@ -630,7 +682,8 @@ public sealed class CustomsValueCalculator
                     f.FeeCategoryCode.Contains("FRET", StringComparison.OrdinalIgnoreCase) &&
                     f.Amount > 0m &&
                     f.IncludeInCustomsValue &&
-                    f.CustomsTreatment == CustomsAdjustmentTreatment.Addition_Art16Octies))
+                    f.CustomsTreatment != CustomsAdjustmentTreatment.Deduction_Art16Ter_Octies3 &&
+                    f.CustomsTreatment != CustomsAdjustmentTreatment.IncludedInInvoicePrice))
                 {
                     anomalies.Add(new CalculationAnomaly(
                         AnomalySeverity.Avertissement,
@@ -654,13 +707,42 @@ public sealed class CustomsValueCalculator
             if (!feeDefinitionsById.TryGetValue(alloc.FeeId, out var feeDef))
                 continue;
 
-            if (feeDef.IncludeInCustomsValue && feeDef.CustomsTreatment == CustomsAdjustmentTreatment.Addition_Art16Octies)
+            // Revue du 2026-10-02 (correction urgente — case "Inclure dans la valeur en douane" sans
+            // effet réel) : IncludeInCustomsValue est désormais le SEUL interrupteur maître déterminant
+            // si un frais a un quelconque effet sur la valeur en douane (demande utilisateur, Section 3.1 :
+            // "Inclure dans la valeur en douane" et "Inclure dans le coût de revient" doivent fonctionner
+            // indépendamment l'une de l'autre, chacune pilotée par sa propre case à cocher). Avant cette
+            // correction, une addition exigeait EN PLUS que CustomsTreatment soit EXACTEMENT
+            // Addition_Art16Octies : si un frais avait été créé avec un autre traitement par défaut (ex:
+            // PostIntroductionExcluded, cas de la plupart des StandardTemplates) puis que l'utilisateur
+            // cochait manuellement la case à l'écran "Frais" sans que l'écran n'expose de contrôle pour
+            // changer CustomsTreatment, le montant restait silencieusement EXCLU de la valeur en douane —
+            // alors qu'il apparaissait bien dans "Frais alloués" (coût de revient, piloté séparément par
+            // IncludedInCostOfGoods). CustomsTreatment ne sert plus qu'à choisir le SENS de l'effet
+            // (addition vs déduction) une fois IncludeInCustomsValue=true explicitement coché — il ne doit
+            // plus jamais, à lui seul, empêcher une addition pourtant demandée par l'utilisateur, ni
+            // provoquer une déduction alors que la case est décochée.
+            if (!feeDef.IncludeInCustomsValue)
+                continue;
+
+            switch (feeDef.CustomsTreatment)
             {
-                additions += alloc.AllocatedAmountDzd;
-            }
-            else if (feeDef.CustomsTreatment == CustomsAdjustmentTreatment.Deduction_Art16Ter_Octies3)
-            {
-                deductions += alloc.AllocatedAmountDzd;
+                case CustomsAdjustmentTreatment.Deduction_Art16Ter_Octies3:
+                    deductions += alloc.AllocatedAmountDzd;
+                    break;
+
+                case CustomsAdjustmentTreatment.IncludedInInvoicePrice:
+                    // Garde-fou anti double comptage (Section 3.6/cas D10 réel, fret déjà inclus au prix
+                    // CFR) : par définition, un frais marqué "déjà inclus dans le prix facturé" n'a AUCUN
+                    // montant supplémentaire à ajouter à la valeur en douane, même si la case "Inclure
+                    // dans valeur en douane" a été cochée par erreur — le montant est déjà dans
+                    // linePurchaseValueDzd via le prix commercial de la ligne.
+                    break;
+
+                default: // Addition_Art16Octies et PostIntroductionExcluded : dès lors que l'utilisateur a
+                         // explicitement coché "Inclure dans valeur en douane", le frais est ajouté.
+                    additions += alloc.AllocatedAmountDzd;
+                    break;
             }
         }
 
@@ -792,14 +874,32 @@ public sealed class ImportCalculationOrchestrator
         var purchasePairs = linesWithPurchaseDzd.Select(x => (x.Line, x.LinePurchaseDzd)).ToList();
         foreach (var fee in operation.Fees)
         {
-            var (feeRate, _, feeRateAnomaly) = string.Equals(fee.CurrencyCode, operation.MainCurrencyCode, StringComparison.OrdinalIgnoreCase)
-                ? (mainRateToDzd, null, null)
-                : _currencyCalculator.ResolveRate(fee.CurrencyCode, operation.ReferenceDate, null);
+            decimal feeDzd;
 
-            if (feeRateAnomaly != null)
-                anomalies.Add(feeRateAnomaly);
+            if (fee.AllocationMethod == FeeAllocationMethod.Percentage)
+            {
+                // Revue du 2026-10-02 (correction fonctionnelle — méthode de répartition "Pourcentage",
+                // Section 3.4.D de la demande utilisateur) : pour cette méthode, fee.Amount représente un
+                // TAUX (%), jamais un montant en devise — AUCUNE conversion de change ne doit lui être
+                // appliquée (CurrencyCode reste renseigné sur l'entité pour des raisons de modèle commun,
+                // mais n'a ici aucune incidence). Base = valeur d'achat totale des lignes concernées par ce
+                // frais (même assiette que "Par valeur") ; Frais = Base × Pourcentage / 100. Exemple exact
+                // de la demande : Base = 10 000 DA, Pourcentage = 5 % -> Frais = 500 DA.
+                decimal totalLinePurchaseDzd = purchasePairs.Sum(p => p.LinePurchaseDzd);
+                feeDzd = CurrencyCalculator.RoundDzd(totalLinePurchaseDzd * (fee.Amount / 100m));
+            }
+            else
+            {
+                var (feeRate, _, feeRateAnomaly) = string.Equals(fee.CurrencyCode, operation.MainCurrencyCode, StringComparison.OrdinalIgnoreCase)
+                    ? (mainRateToDzd, null, null)
+                    : _currencyCalculator.ResolveRate(fee.CurrencyCode, operation.ReferenceDate, null);
 
-            decimal feeDzd = CurrencyCalculator.RoundDzd(fee.Amount * feeRate);
+                if (feeRateAnomaly != null)
+                    anomalies.Add(feeRateAnomaly);
+
+                feeDzd = CurrencyCalculator.RoundDzd(fee.Amount * feeRate);
+            }
+
             var perLineAlloc = _allocationEngine.AllocateFeeAcrossLines(fee, feeDzd, purchasePairs, anomalies);
             foreach (var kvp in perLineAlloc)
             {

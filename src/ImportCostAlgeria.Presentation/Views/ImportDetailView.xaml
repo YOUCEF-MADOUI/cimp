@@ -169,7 +169,11 @@
                             <DataGridTextColumn Header="DD" Binding="{Binding DroitDouaneDzd, Converter={StaticResource MoneyDaConverter}}" Width="85" IsReadOnly="True" />
                             <DataGridTextColumn Header="CS" Binding="{Binding CsDzd, Converter={StaticResource MoneyDaConverter}}" Width="85" IsReadOnly="True" />
                             <DataGridTextColumn Header="TVA" Binding="{Binding TvaDzd, Converter={StaticResource MoneyDaConverter}}" Width="90" IsReadOnly="True" />
-                            <DataGridTextColumn Header="TCS" Binding="{Binding TcsDzd, Converter={StaticResource MoneyDaConverter}}" Width="85" IsReadOnly="True" />
+                            <!-- Revue du 2026-10-02 (demande utilisateur, Section 2) : colonne "TCS" volontairement
+                                 RETIRÉE de l'affichage du tableau des articles (seule "CS" reste affichée ici) —
+                                 le support interne du TCS (calcul réglementaire, ImportLineRowViewModel.TcsDzd,
+                                 total TCS du résumé supérieur) reste intégralement conservé, rien n'est supprimé
+                                 du modèle ni du moteur de calcul. -->
                             <DataGridTextColumn Header="PRCT" Binding="{Binding PrctDzd, Converter={StaticResource MoneyDaConverter}}" Width="85" IsReadOnly="True" />
                             <DataGridTextColumn Header="RPS" Binding="{Binding RpsAllocatedDzd, Converter={StaticResource MoneyDaConverter}}" Width="85" IsReadOnly="True" />
                             <DataGridTextColumn Header="PU Reviens" Binding="{Binding PuReviensDzd, Converter={StaticResource MoneyDaConverter}}" Width="100" IsReadOnly="True" />

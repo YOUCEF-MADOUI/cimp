@@ -3,6 +3,13 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="CIMP — Coût d'Importation Maître Pro (Algérie)" Height="860" Width="1500"
         WindowStartupLocation="CenterScreen">
+    <Window.InputBindings>
+        <!-- Section 5.1 (menu "Édition") : Annuler/Rétablir actifs uniquement lorsque l'écran affiché
+             (CurrentView) est la fiche détaillée d'une importation — le binding échoue silencieusement
+             (commande absente -> désactivée) sur les autres écrans, sans erreur ni plantage. -->
+        <KeyBinding Key="Z" Modifiers="Control" Command="{Binding CurrentView.UndoCommand}" />
+        <KeyBinding Key="Y" Modifiers="Control" Command="{Binding CurrentView.RedoCommand}" />
+    </Window.InputBindings>
     <!--
     Revue du 2026-10-02 (REFONTE INTERFACE — Section 1/2/3) : l'ancien volet de navigation gauche
     (Tableau de bord / Entreprises / Importations / Réglementation / Taux de change / Journal d'audit /
@@ -20,6 +27,21 @@
                 <MenuItem Header="Quitter" Command="{Binding QuitCommand}" />
             </MenuItem>
             <MenuItem Header="_Édition">
+                <!-- Section 5.1 : historique Annuler/Rétablir RÉEL (ImportCostAlgeria.Core.Services.UndoRedoManager),
+                     porté par la fiche détaillée d'importation (prix, quantité, prix de vente, pays, frais,
+                     méthode de répartition, inclusion valeur en douane/coût de revient, taux manuel). -->
+                <MenuItem Header="Annuler" Command="{Binding CurrentView.UndoCommand}" InputGestureText="Ctrl+Z" />
+                <MenuItem Header="Rétablir" Command="{Binding CurrentView.RedoCommand}" InputGestureText="Ctrl+Y" />
+                <Separator />
+                <!-- Section 5 : commandes d'édition standard réutilisant les commandes WPF natives
+                     (ApplicationCommands) déjà prises en charge par les contrôles texte/grilles — aucune
+                     logique dupliquée. -->
+                <MenuItem Header="Couper" Command="ApplicationCommands.Cut" InputGestureText="Ctrl+X" />
+                <MenuItem Header="Copier" Command="ApplicationCommands.Copy" InputGestureText="Ctrl+C" />
+                <MenuItem Header="Coller" Command="ApplicationCommands.Paste" InputGestureText="Ctrl+V" />
+                <MenuItem Header="Supprimer" Command="ApplicationCommands.Delete" InputGestureText="Suppr" />
+                <MenuItem Header="Sélectionner tout" Command="ApplicationCommands.SelectAll" InputGestureText="Ctrl+A" />
+                <Separator />
                 <MenuItem Header="Actualiser la liste des importations" Command="{Binding RefreshImportationsCommand}" />
             </MenuItem>
             <MenuItem Header="_Paramètres">

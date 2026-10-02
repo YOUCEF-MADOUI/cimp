@@ -20,6 +20,7 @@ public sealed class ParametresViewModel : ObservableObject
     private readonly UserRepository _userRepository;
     private readonly SessionContext _session;
     private readonly AuditTrailService _audit;
+    private readonly RememberedLoginStore _rememberedLoginStore;
 
     private Company? _company;
     private string _newUsername = string.Empty;
@@ -27,12 +28,18 @@ public sealed class ParametresViewModel : ObservableObject
     private string _newPassword = string.Empty;
     private UserRole _newRole = UserRole.Utilisateur;
 
-    public ParametresViewModel(CompanyRepository companyRepository, UserRepository userRepository, SessionContext session, AuditTrailService audit)
+    public ParametresViewModel(
+        CompanyRepository companyRepository,
+        UserRepository userRepository,
+        SessionContext session,
+        AuditTrailService audit,
+        RememberedLoginStore rememberedLoginStore)
     {
         _companyRepository = companyRepository;
         _userRepository = userRepository;
         _session = session;
         _audit = audit;
+        _rememberedLoginStore = rememberedLoginStore;
 
         Users = new ObservableCollection<AppUser>();
         Roles = Enum.GetValues<UserRole>();
@@ -118,6 +125,11 @@ public sealed class ParametresViewModel : ObservableObject
 
         if (window.ShowDialog() == true)
         {
+            // Section 4.3 (demande utilisateur — "Se souvenir de moi") : tout changement de mot de passe
+            // invalide IMMÉDIATEMENT l'ancien secret mémorisé (DPAPI) — un nouveau secret ne sera enregistré
+            // que si l'utilisateur recoche explicitement "Se souvenir de moi" lors d'une prochaine connexion.
+            _rememberedLoginStore.Clear();
+
             _audit.RecordAction(null, _session.CurrentUser.Id, _session.CurrentUser.DisplayName,
                 "USER_MANAGEMENT", "CHANGE_OWN_PASSWORD");
             MessageBox.Show("Mot de passe modifié avec succès.", "CIMP", MessageBoxButton.OK, MessageBoxImage.Information);
