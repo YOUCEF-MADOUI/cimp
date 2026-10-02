@@ -876,13 +876,50 @@ public sealed class ImportCalculationOrchestrator
                 operation.ReferenceDate,
                 operation.ManualAuthorizationCurrencyRateToDzd);
 
-            // NE JAMAIS inverser cette formule (division, jamais une multiplication par le taux DZD de la
-            // devise d'autorisation) : voir ImportCostAlgeria.Core.Domain.ImportOperation.ManualAuthorizationCurrencyRateToDzd.
-            authorizationRate = authCurrencyToDzd == 0m ? 0m : mainRateToDzd / authCurrencyToDzd;
-            authorizationOfficialRate = authCurrencyOfficial;
-            authorizationRateIsManual =
+            bool hasManualAuthorizationRate =
                 (operation.ManualExchangeRateOverride.HasValue && operation.ManualExchangeRateOverride.Value > 0m) ||
                 (operation.ManualAuthorizationCurrencyRateToDzd.HasValue && operation.ManualAuthorizationCurrencyRateToDzd.Value > 0m);
+
+            if (authCurrencyToDzd > 0m)
+            {
+                // Cas normal (et le SEUL utilisé dès que les deux devises disposent d'un taux DZD, officiel
+                // ou manuel) : dérivation stricte via le DZD. NE JAMAIS inverser cette formule (division,
+                // jamais une multiplication par le taux DZD de la devise d'autorisation) : voir
+                // ImportCostAlgeria.Core.Domain.ImportOperation.ManualAuthorizationCurrencyRateToDzd, et les
+                // tests de non-régression AuthorizationConversion_UserReportedBug_.../ExactUserExample_...
+                authorizationRate = mainRateToDzd / authCurrencyToDzd;
+                authorizationOfficialRate = authCurrencyOfficial;
+                authorizationRateIsManual = hasManualAuthorizationRate;
+            }
+            else if (!hasManualAuthorizationRate)
+            {
+                // Repli (Section 6 du plan multi-devises — ne régresse PAS la correction ci-dessus) :
+                // aucun taux réglementaire NI manuel vers le DZD n'existe pour la devise d'autorisation
+                // (ex: USD n'a tout simplement aucun taux DZD publié pour cette opération). Dans ce cas, et
+                // UNIQUEMENT dans ce cas, un enregistrement de taux croisé publié directement entre la
+                // devise facture et la devise d'autorisation (ex: EUR -> USD) reste reconnu, via le MÊME
+                // service et la MÊME règle que la conversion par ligne ci-dessous
+                // (CurrencyConversionService.ResolveCrossRate, voir aussi son repli documenté). Dès qu'un
+                // taux DZD existe pour les deux devises, cette branche n'est jamais utilisée (voir
+                // ci-dessus) : aucune régression sur le cas normal.
+                var (crossRate, crossOfficial, crossAnomaly) = _commercialConversionService.ResolveCrossRate(
+                    operation.MainCurrencyCode, operation.AuthorizationCurrencyCode, operation.ReferenceDate, null);
+                authorizationRate = crossRate;
+                authorizationOfficialRate = crossOfficial;
+                authorizationRateIsManual = false;
+                // Le repli a sa propre anomalie (plus précise : "aucun taux DZD ET aucun taux croisé publié")
+                // qui remplace celle, moins précise, du simple "taux DZD manquant" ci-dessus — et qui est
+                // nulle si, comme ici, le repli a effectivement trouvé un taux exploitable.
+                authCurrencyAnomaly = crossAnomaly;
+            }
+            else
+            {
+                // Taux manuel renseigné mais invalide (<= 0) : cas limite déjà couvert par le comportement
+                // historique (taux non déterminé), conservé à l'identique.
+                authorizationRate = 0m;
+                authorizationOfficialRate = authCurrencyOfficial;
+                authorizationRateIsManual = hasManualAuthorizationRate;
+            }
 
             if (authCurrencyAnomaly != null)
             {
@@ -1157,7 +1194,14 @@ public sealed class ImportCalculationOrchestrator
                     $"ℹ️ Ligne {line.LineNumber} ({line.ProductReference}) : Contribution de Solidarité (CS) explicitement NON APPLICABLE selon une règle réglementaire officielle.",
                     LineNumber: line.LineNumber));
             }
-            else if (useDefaultRates)
+            // Correction du 2026-10-02 (régression Section H) : le taux PAR DÉFAUT de la CS ne doit être
+            // invoqué QUE lorsque le code SH est totalement inconnu du référentiel (DD ET TVA tous deux
+            // introuvables, regOutcome.IsDetermined == false, cf. test "NoRegulatoryRuleAnywhere..."). Si le
+            // code SH est officiellement connu (DD et TVA publiés pour ce SH) mais qu'aucune règle CS
+            // spécifique n'a été publiée, cela signifie que la CS NE S'APPLIQUE PAS à ce SH — il ne faut
+            // JAMAIS inventer 3 % dans ce cas (sinon double emploi avec les totaux déjà réglementairement
+            // déterminés, cf. Section H : Total Taxes Additionnelles attendu = 256 008,75, DAPS seule).
+            else if (useDefaultRates && !regOutcome.IsDetermined)
             {
                 decimal csBase = customsValueDzd;
                 decimal csAmount = CurrencyCalculator.RoundDzd(csBase * (operation.DefaultCsRatePercent / 100m));
@@ -1221,7 +1265,11 @@ public sealed class ImportCalculationOrchestrator
                     $"⚠️ Ligne {line.LineNumber} ({line.ProductReference}) : Taux TCS ({operation.ManualTcsRatePercent.Value:F2} %) saisi manuellement pour cette importation, en l'absence de règle officielle.",
                     LineNumber: line.LineNumber));
             }
-            else if (useDefaultRates)
+            // Correction du 2026-10-02 (régression Section H) : même principe que pour la CS ci-dessus —
+            // le taux PAR DÉFAUT de la TCS n'est invoqué que si le SH est totalement inconnu du référentiel
+            // (regOutcome.IsDetermined == false). Un SH officiellement connu (DD+TVA publiés) sans règle TCS
+            // spécifique signifie que la TCS ne s'applique pas à ce SH, jamais une valeur inventée.
+            else if (useDefaultRates && !regOutcome.IsDetermined)
             {
                 decimal tcsBase = customsValueDzd;
                 decimal tcsAmount = CurrencyCalculator.RoundDzd(tcsBase * (operation.DefaultTcsRatePercent / 100m));
@@ -1390,7 +1438,11 @@ public sealed class ImportCalculationOrchestrator
                     $"⚠️ Ligne {line.LineNumber} ({line.ProductReference}) : Taux PRCT ({operation.ManualPrctRatePercent.Value:F2} %) saisi manuellement pour cette importation, en l'absence de règle officielle.",
                     LineNumber: line.LineNumber));
             }
-            else if (useDefaultRates)
+            // Correction du 2026-10-02 (régression Section H) : même principe que pour la CS/TCS — le taux
+            // PAR DÉFAUT du PRCT n'est invoqué que si le SH est totalement inconnu du référentiel
+            // (regOutcome.IsDetermined == false). Un SH officiellement connu (DD+TVA publiés) sans règle
+            // PRCT spécifique signifie que le PRCT ne s'applique pas à ce SH, jamais une valeur inventée.
+            else if (useDefaultRates && !regOutcome.IsDetermined)
             {
                 // Section 7 : Base PRCT par défaut = Valeur douane + CS + TVA + DD = (VD+DD+CS) + TVA,
                 // c'est-à-dire exactement l'assiette TVA (vatTaxableBaseDzd) + la TVA elle-même.

@@ -143,7 +143,32 @@ public static class ExcelFileReader
     private static string ReadCellTextWithoutEvaluatingFormulas(IXLCell cell)
     {
         if (cell.HasFormula)
-            return FormatCachedValue(cell.CachedValue);
+        {
+            // Chemin normal (quasi tous les classeurs fournisseurs réels, enregistrés par Excel) : la
+            // dernière valeur calculée est bien présente et valide dans le fichier -> on la restitue
+            // directement, SANS JAMAIS invoquer le moteur de calcul de ClosedXML.
+            if (!cell.NeedsRecalculation)
+                return FormatCachedValue(cell.CachedValue);
+
+            // Repli (Section « cache formule absente ») : certains classeurs (notamment ceux générés par
+            // des outils tiers ou des exports qui n'ont pas persisté la valeur mise en cache de la formule,
+            // <c r="..."><f>...</f><v>...</v></c> sans <v>) n'offrent AUCUNE valeur en cache exploitable —
+            // NeedsRecalculation reste vrai dès l'ouverture, avant même tout accès de CIMP. Dans ce seul
+            // cas (jamais lorsqu'un cache valide existe), on tente une évaluation PONCTUELLE et STRICTEMENT
+            // LOCALE à cette cellule (jamais un recalcul global du classeur). Si la fonction utilisée n'est
+            // pas supportée par le moteur interne de ClosedXML, l'exception est absorbée ICI MÊME — jamais
+            // propagée — pour ne jamais faire échouer la lecture de tout le fichier à cause d'une seule
+            // cellule (cf. bug « Function not supported » corrigé le 2026-10-01) : la cellule retombe alors
+            // simplement à vide, comme une donnée non déterminable, jamais une valeur inventée.
+            try
+            {
+                return cell.GetString().Trim();
+            }
+            catch
+            {
+                return FormatCachedValue(cell.CachedValue);
+            }
+        }
 
         return cell.IsEmpty() ? string.Empty : cell.GetString().Trim();
     }

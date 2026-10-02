@@ -24,11 +24,23 @@ public static class ProfitCalculator
     /// % Bénéfice = Bénéfice / PU Reviens × 100 — marge calculée par rapport au COÛT DE REVIENT (jamais par
     /// rapport au prix de vente). Retourne null si le coût de revient unitaire est nul (division par zéro
     /// jamais silencieuse ni remplacée par une valeur inventée).
+    ///
+    /// Correction du 2026-10-02 (régression test ProfitCalculator) : le ratio brut (profit / coût × 100) est
+    /// calculé en UNE SEULE fois sans aucun arrondi intermédiaire, puis seule la troncature à 2 décimales
+    /// (jamais un arrondi au plus proche) est appliquée sur ce résultat final — conformément à l'exemple
+    /// officiel de la demande (PU Reviens = 452,23 ; Prix de vente = 600 -> % Bénéfice = 32,67 %, et NON
+    /// 32,68 % : on ne doit jamais SURESTIMER la marge affichée à l'utilisateur en arrondissant au supérieur).
     /// </summary>
-    public static decimal? ComputeProfitPercent(decimal profitDzd, decimal unitCostOfGoodsDzd) =>
-        unitCostOfGoodsDzd == 0m
-            ? null
-            : Math.Round(profitDzd / unitCostOfGoodsDzd * 100m, 2, MidpointRounding.AwayFromZero);
+    public static decimal? ComputeProfitPercent(decimal profitDzd, decimal unitCostOfGoodsDzd)
+    {
+        if (unitCostOfGoodsDzd == 0m)
+        {
+            return null;
+        }
+
+        decimal rawPercent = profitDzd / unitCostOfGoodsDzd * 100m;
+        return Math.Truncate(rawPercent * 100m) / 100m;
+    }
 
     /// <summary>
     /// Revue du 2026-10-02 (Section 8 — affichage de la valeur en douane dans une devise choisie, SANS
