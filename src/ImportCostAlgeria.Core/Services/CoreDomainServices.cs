@@ -89,32 +89,48 @@ public sealed record StandardFeeTemplate(
     FeeAllocationMethod SuggestedAllocationMethod,
     bool DefaultIncludeInCustomsValue,
     CustomsAdjustmentTreatment DefaultCustomsTreatment,
-    bool DefaultIncludeInCostOfGoods);
+    bool DefaultIncludeInCostOfGoods,
+    // Revue du 2026-10-02 (demande utilisateur, Section 2 — "restaurer le choix de devise des frais" +
+    // règle de pré-sélection) : true = frais normalement payé EN ALGÉRIE (pré-sélectionné en DA/DZD —
+    // transport port -> entrepôt, manutention locale, magasinage, transit, frais bancaires, RPS...) ;
+    // false = frais normalement payé DANS LE PAYS D'EXPÉDITION (pré-sélectionné dans la devise de la
+    // facture/importation — fret international, frais export, assurance...). Reste TOUJOURS modifiable
+    // par l'utilisateur ensuite (voir FeeRowViewModel.CurrencyCode) : une simple PROPOSITION par défaut,
+    // jamais une conversion automatique forcée de tous les frais vers une même devise.
+    bool DefaultIsLocalCurrency = true);
 
 public static class ImportFeeCatalog
 {
     public static readonly IReadOnlyList<StandardFeeTemplate> StandardTemplates = new[]
     {
-        new StandardFeeTemplate("FRET_INTERNATIONAL",         "Fret international",                     FeeAllocationMethod.ByValue,    true,  CustomsAdjustmentTreatment.Addition_Art16Octies,     true),
-        new StandardFeeTemplate("ASSURANCE",                  "Assurance",                              FeeAllocationMethod.ByValue,    true,  CustomsAdjustmentTreatment.Addition_Art16Octies,     true),
-        new StandardFeeTemplate("TRANSPORT_INTERIEUR_EXPORT", "Transport intérieur pays exportateur",   FeeAllocationMethod.ByWeight,   true,  CustomsAdjustmentTreatment.Addition_Art16Octies,     true),
-        new StandardFeeTemplate("FRAIS_EXPORT",               "Frais export",                           FeeAllocationMethod.ByValue,    true,  CustomsAdjustmentTreatment.Addition_Art16Octies,     true),
-        new StandardFeeTemplate("MANUTENTION",                "Manutention",                            FeeAllocationMethod.ByQuantity, false, CustomsAdjustmentTreatment.PostIntroductionExcluded, true),
-        new StandardFeeTemplate("FRAIS_PORTUAIRES",           "Frais portuaires",                       FeeAllocationMethod.ByValue,    false, CustomsAdjustmentTreatment.PostIntroductionExcluded, true),
-        new StandardFeeTemplate("THC",                        "THC (Terminal Handling Charges)",        FeeAllocationMethod.ByQuantity, false, CustomsAdjustmentTreatment.PostIntroductionExcluded, true),
-        new StandardFeeTemplate("MAGASINAGE",                 "Magasinage",                             FeeAllocationMethod.ByValue,    false, CustomsAdjustmentTreatment.PostIntroductionExcluded, true),
-        new StandardFeeTemplate("DEPOTAGE",                   "Dépotage",                               FeeAllocationMethod.ByQuantity, false, CustomsAdjustmentTreatment.PostIntroductionExcluded, true),
-        new StandardFeeTemplate("TRANSIT",                    "Transit",                                FeeAllocationMethod.ByValue,    false, CustomsAdjustmentTreatment.PostIntroductionExcluded, true),
-        new StandardFeeTemplate("COMMISSIONNAIRE_DOUANE",     "Commissionnaire en douane (Honoraires)", FeeAllocationMethod.ByValue,    false, CustomsAdjustmentTreatment.PostIntroductionExcluded, true),
-        new StandardFeeTemplate("TRANSPORT_PORT_ENTREPOT",    "Transport port → entrepôt",              FeeAllocationMethod.ByWeight,   false, CustomsAdjustmentTreatment.PostIntroductionExcluded, true),
-        new StandardFeeTemplate("FRAIS_BANCAIRES",            "Frais bancaires",                        FeeAllocationMethod.ByValue,    false, CustomsAdjustmentTreatment.PostIntroductionExcluded, true),
-        new StandardFeeTemplate("DOMICILIATION",              "Domiciliation bancaire",                 FeeAllocationMethod.ByValue,    false, CustomsAdjustmentTreatment.PostIntroductionExcluded, true),
-        new StandardFeeTemplate("CONTROLE",                   "Contrôle aux frontières",                FeeAllocationMethod.ByValue,    false, CustomsAdjustmentTreatment.PostIntroductionExcluded, true),
-        new StandardFeeTemplate("INSPECTION",                 "Inspection",                             FeeAllocationMethod.ByValue,    false, CustomsAdjustmentTreatment.PostIntroductionExcluded, true),
-        new StandardFeeTemplate("CERTIFICATION",              "Certification / Conformité",             FeeAllocationMethod.ByValue,    false, CustomsAdjustmentTreatment.PostIntroductionExcluded, true),
-        new StandardFeeTemplate("AUTRES_FRAIS",               "Autres frais",                           FeeAllocationMethod.ByValue,    false, CustomsAdjustmentTreatment.PostIntroductionExcluded, true),
-        new StandardFeeTemplate("RPS",                        "Redevance de Prestation de Service (RPS)", FeeAllocationMethod.FixedAmount, false, CustomsAdjustmentTreatment.PostIntroductionExcluded, true)
+        new StandardFeeTemplate("FRET_INTERNATIONAL",         "Fret international",                     FeeAllocationMethod.ByValue,    true,  CustomsAdjustmentTreatment.Addition_Art16Octies,     true,  DefaultIsLocalCurrency: false),
+        new StandardFeeTemplate("ASSURANCE",                  "Assurance",                              FeeAllocationMethod.ByValue,    true,  CustomsAdjustmentTreatment.Addition_Art16Octies,     true,  DefaultIsLocalCurrency: false),
+        new StandardFeeTemplate("TRANSPORT_INTERIEUR_EXPORT", "Transport intérieur pays exportateur",   FeeAllocationMethod.ByWeight,   true,  CustomsAdjustmentTreatment.Addition_Art16Octies,     true,  DefaultIsLocalCurrency: false),
+        new StandardFeeTemplate("FRAIS_EXPORT",               "Frais export",                           FeeAllocationMethod.ByValue,    true,  CustomsAdjustmentTreatment.Addition_Art16Octies,     true,  DefaultIsLocalCurrency: false),
+        new StandardFeeTemplate("MANUTENTION",                "Manutention",                            FeeAllocationMethod.ByQuantity, false, CustomsAdjustmentTreatment.PostIntroductionExcluded, true,  DefaultIsLocalCurrency: true),
+        new StandardFeeTemplate("FRAIS_PORTUAIRES",           "Frais portuaires",                       FeeAllocationMethod.ByValue,    false, CustomsAdjustmentTreatment.PostIntroductionExcluded, true,  DefaultIsLocalCurrency: true),
+        new StandardFeeTemplate("THC",                        "THC (Terminal Handling Charges)",        FeeAllocationMethod.ByQuantity, false, CustomsAdjustmentTreatment.PostIntroductionExcluded, true,  DefaultIsLocalCurrency: true),
+        new StandardFeeTemplate("MAGASINAGE",                 "Magasinage",                             FeeAllocationMethod.ByValue,    false, CustomsAdjustmentTreatment.PostIntroductionExcluded, true,  DefaultIsLocalCurrency: true),
+        new StandardFeeTemplate("DEPOTAGE",                   "Dépotage",                               FeeAllocationMethod.ByQuantity, false, CustomsAdjustmentTreatment.PostIntroductionExcluded, true,  DefaultIsLocalCurrency: true),
+        new StandardFeeTemplate("TRANSIT",                    "Transit",                                FeeAllocationMethod.ByValue,    false, CustomsAdjustmentTreatment.PostIntroductionExcluded, true,  DefaultIsLocalCurrency: true),
+        new StandardFeeTemplate("COMMISSIONNAIRE_DOUANE",     "Commissionnaire en douane (Honoraires)", FeeAllocationMethod.ByValue,    false, CustomsAdjustmentTreatment.PostIntroductionExcluded, true,  DefaultIsLocalCurrency: true),
+        new StandardFeeTemplate("TRANSPORT_PORT_ENTREPOT",    "Transport port → entrepôt",              FeeAllocationMethod.ByWeight,   false, CustomsAdjustmentTreatment.PostIntroductionExcluded, true,  DefaultIsLocalCurrency: true),
+        new StandardFeeTemplate("FRAIS_BANCAIRES",            "Frais bancaires",                        FeeAllocationMethod.ByValue,    false, CustomsAdjustmentTreatment.PostIntroductionExcluded, true,  DefaultIsLocalCurrency: true),
+        new StandardFeeTemplate("DOMICILIATION",              "Domiciliation bancaire",                 FeeAllocationMethod.ByValue,    false, CustomsAdjustmentTreatment.PostIntroductionExcluded, true,  DefaultIsLocalCurrency: true),
+        new StandardFeeTemplate("CONTROLE",                   "Contrôle aux frontières",                FeeAllocationMethod.ByValue,    false, CustomsAdjustmentTreatment.PostIntroductionExcluded, true,  DefaultIsLocalCurrency: true),
+        new StandardFeeTemplate("INSPECTION",                 "Inspection",                             FeeAllocationMethod.ByValue,    false, CustomsAdjustmentTreatment.PostIntroductionExcluded, true,  DefaultIsLocalCurrency: true),
+        new StandardFeeTemplate("CERTIFICATION",              "Certification / Conformité",             FeeAllocationMethod.ByValue,    false, CustomsAdjustmentTreatment.PostIntroductionExcluded, true,  DefaultIsLocalCurrency: true),
+        new StandardFeeTemplate("AUTRES_FRAIS",               "Autres frais",                           FeeAllocationMethod.ByValue,    false, CustomsAdjustmentTreatment.PostIntroductionExcluded, true,  DefaultIsLocalCurrency: true),
+        new StandardFeeTemplate("RPS",                        "Redevance de Prestation de Service (RPS)", FeeAllocationMethod.FixedAmount, false, CustomsAdjustmentTreatment.PostIntroductionExcluded, true, DefaultIsLocalCurrency: true)
     };
+
+    /// <summary>
+    /// Devises proposées pour un frais (Section 2 de la demande utilisateur — "prévoir une architecture
+    /// extensible à d'autres devises") : ajouter une devise supportée se fait UNIQUEMENT ici, sans toucher
+    /// à aucun ViewModel ni XAML (la liste est consommée telle quelle par le ComboBox "Devise" de l'écran
+    /// Frais). "DZD" reste toujours la première (devise par défaut la plus fréquente pour les frais locaux).
+    /// </summary>
+    public static readonly IReadOnlyList<string> SupportedFeeCurrencies = new[] { "DZD", "EUR", "USD" };
 
     /// <summary>
     /// Méthodes de répartition proposées à l'écran en V1 (Section 19) : "Par poids" et "Par volume" restent

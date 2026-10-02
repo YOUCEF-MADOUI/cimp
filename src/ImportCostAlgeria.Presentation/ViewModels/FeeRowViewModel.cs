@@ -78,9 +78,39 @@ public sealed class FeeRowViewModel : ObservableObject
         {
             bool oldValue = Fee.IncludeInCustomsValue;
             if (oldValue == value) return;
-            Fee.IncludeInCustomsValue = value;
-            OnPropertyChanged();
-            _undoRedo?.RecordFieldChange($"Inclusion valeur en douane du frais '{Fee.FeeName}'", v => { Fee.IncludeInCustomsValue = v; OnPropertyChanged(nameof(IncludeInCustomsValue)); }, oldValue, value);
+
+            // Revue du 2026-10-02 (demande utilisateur, Sections 3 & 5 — "la case 'Inclure dans la valeur
+            // en douane' n'a pas d'effet réel" / "le FRET_INTERNATIONAL ne rentre pas dans la valeur en
+            // douane même quand il est coché"). CAUSE RACINE : certains frais (ex : fret international
+            // ajouté automatiquement sous Incoterm CFR, voir ImportDetailViewModel.AddFeeFromTemplate) sont
+            // créés avec CustomsTreatment = IncludedInInvoicePrice ("déjà compté dans le prix facturé" —
+            // protection anti double comptage du cas D10/Section 3.6). CustomsValueCalculator n'ajoute
+            // JAMAIS un montant pour ce traitement, même si IncludeInCustomsValue=true. Tant que
+            // l'utilisateur laisse la case telle quelle, c'est le comportement voulu (le fret CFR est déjà
+            // dans le prix). Mais dès qu'il la COCHE LUI-MÊME explicitement, cela signifie "non, ce frais
+            // n'est PAS déjà compris dans le prix facturé, ajoutez-le réellement" — le traitement doit donc
+            // être réaligné sur une addition normale, sinon la case cochée resterait sans AUCUN effet
+            // (exactement le bug signalé). Les flags IncludeInCustomsValue/IncludeInCostOfGoods restent les
+            // SEULS leviers exposés à l'utilisateur ; CustomsTreatment n'est plus qu'un détail interne
+            // automatiquement maintenu cohérent avec eux.
+            var oldTreatment = Fee.CustomsTreatment;
+            var newTreatment = (value && oldTreatment == CustomsAdjustmentTreatment.IncludedInInvoicePrice)
+                ? CustomsAdjustmentTreatment.Addition_Art16Octies
+                : oldTreatment;
+
+            void Apply(bool include, CustomsAdjustmentTreatment treatment)
+            {
+                Fee.IncludeInCustomsValue = include;
+                Fee.CustomsTreatment = treatment;
+                OnPropertyChanged(nameof(IncludeInCustomsValue));
+            }
+
+            Apply(value, newTreatment);
+
+            _undoRedo?.Record(new DelegateUndoableAction(
+                $"Inclusion valeur en douane du frais '{Fee.FeeName}'",
+                undo: () => Apply(oldValue, oldTreatment),
+                redo: () => Apply(value, newTreatment)));
         }
     }
 

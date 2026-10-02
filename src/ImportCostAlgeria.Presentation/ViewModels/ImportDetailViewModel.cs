@@ -63,6 +63,8 @@ public sealed class ImportDetailViewModel : ObservableObject
     private string _incotermGuidance = string.Empty;
     private string _headerLabel = string.Empty;
     private StandardFeeTemplate? _selectedFeeTemplate;
+    private bool _showAnomalyDetails;
+    private string _notificationBannerFr = string.Empty;
 
     public ImportDetailViewModel(
         ImportOperationRepository operationRepository,
@@ -111,6 +113,7 @@ public sealed class ImportDetailViewModel : ObservableObject
         RemoveFeeCommand = new RelayCommand<FeeRowViewModel>(RemoveFee);
         UndoCommand = new RelayCommand(() => UndoRedo.Undo(), () => UndoRedo.CanUndo);
         RedoCommand = new RelayCommand(() => UndoRedo.Redo(), () => UndoRedo.CanRedo);
+        ToggleAnomalyDetailsCommand = new RelayCommand(() => ShowAnomalyDetails = !ShowAnomalyDetails);
     }
 
     public void Initialize(Company company, ImportOperation operation, ImportationsViewModel parentList)
@@ -134,6 +137,9 @@ public sealed class ImportDetailViewModel : ObservableObject
             Fees.Add(new FeeRowViewModel(fee, UndoRedo));
 
         Anomalies.Clear();
+        AnomalyGroups.Clear();
+        NotificationBannerFr = string.Empty;
+        ShowAnomalyDetails = false;
         _lastSummary = null;
         HasBlockingAnomalies = false;
         IsProvisionalCalculation = false;
@@ -148,15 +154,28 @@ public sealed class ImportDetailViewModel : ObservableObject
 
     public string HeaderLabel { get => _headerLabel; private set => SetField(ref _headerLabel, value); }
 
+    /// <summary>Section 7 : notification UNIQUE au niveau de l'importation (jamais répétée par article).</summary>
+    public string NotificationBannerFr { get => _notificationBannerFr; private set => SetField(ref _notificationBannerFr, value); }
+
     public ObservableCollection<ImportLineRowViewModel> Lines { get; }
     public ObservableCollection<FeeRowViewModel> Fees { get; }
     public ObservableCollection<CalculationAnomaly> Anomalies { get; }
+
+    /// <summary>Section 7 (menu "Notifications") : résumé regroupé par TYPE d'anomalie — une seule entrée par code, jamais une répétition par article (voir <see cref="AnomalyGroupingService"/>).</summary>
+    public ObservableCollection<AnomalyGroupSummary> AnomalyGroups { get; } = new();
+
+    /// <summary>Section 7 : bascule "Voir les détails" — affiche/masque la liste détaillée par article (<see cref="Anomalies"/>), sans jamais la supprimer.</summary>
+    public bool ShowAnomalyDetails { get => _showAnomalyDetails; set => SetField(ref _showAnomalyDetails, value); }
+    public RelayCommand ToggleAnomalyDetailsCommand { get; private set; } = null!;
 
     /// <summary>Section 5.1 (menu "Édition") : historique Annuler/Rétablir de cet écran.</summary>
     public UndoRedoManager UndoRedo { get; private set; } = null!;
     public RelayCommand UndoCommand { get; private set; } = null!;
     public RelayCommand RedoCommand { get; private set; } = null!;
     public StandardFeeTemplate[] FeeTemplates { get; }
+
+    /// <summary>Section 2 : devises proposées dans le ComboBox "Devise" de la grille Frais (liste centralisée, extensible — voir <see cref="ImportFeeCatalog.SupportedFeeCurrencies"/>).</summary>
+    public string[] SupportedFeeCurrencies { get; } = ImportFeeCatalog.SupportedFeeCurrencies.ToArray();
     /// <summary>
     /// Revue du 2026-10-02 (Section 19 — "La liste déroulante Méthode de répartition est vide") : expose
     /// désormais les 5 méthodes réellement proposées en V1 (Section 35 : Par poids / Par volume ne sont
@@ -279,7 +298,50 @@ public sealed class ImportDetailViewModel : ObservableObject
             ? _operation.ManualExchangeRateOverride
             : provider.GetRegulatoryRate(CustomsValueDisplayCurrencyIso, _operation.ReferenceDate)?.RateToDzd;
 
-        CustomsValueDisplayAmount = ProfitCalculator.ConvertDzdToDisplayCurrency(TotalValeurDouaneDzd, rateToDzd);
+        if (rateToDzd is > 0m)
+        {
+            CustomsValueDisplayAmount = ProfitCalculator.ConvertDzdToDisplayCurrency(TotalValeurDouaneDzd, rateToDzd);
+            return;
+        }
+
+        // Revue du 2026-10-02 (demande utilisateur, Section 12 — "le sélecteur USD affiche '—' au lieu
+        // d'une valeur convertie") : CAUSE RACINE — aucun taux RÉGLEMENTAIRE officiel direct n'est publié
+        // pour la devise d'affichage demandée (ex : la facture est en EUR, aucun taux officiel USD->DZD
+        // n'a jamais été nécessaire/publié séparément pour le dédouanement). Puisqu'il s'agit ICI d'une
+        // simple CONVERSION D'AFFICHAGE (jamais la valeur réglementaire — TotalValeurDouaneDzd/CustomsValueDzd
+        // restent inchangés, voir commentaire de la propriété CustomsValueDisplayCurrency), on réutilise les
+        // services déjà existants (AUCUNE nouvelle formule) pour obtenir malgré tout une valeur utile :
+        // 1) Valeur en douane DZD -> devise principale de la facture, via le taux RÉGLEMENTAIRE déjà connu
+        //    (le même que celui utilisé pour le calcul douanier lui-même) ;
+        // 2) devise principale -> devise d'affichage demandée, via le taux COMMERCIAL cross-rate (le même
+        //    service que "PU Autorisation"/"Total Autorisation", Section 10/11 du plan multi-devises).
+        decimal? mainCurrencyRegulatoryRate = string.Equals(_operation.MainCurrencyCode, "DZD", StringComparison.OrdinalIgnoreCase)
+            ? 1m
+            : (_operation.ManualExchangeRateOverride is > 0m
+                ? _operation.ManualExchangeRateOverride
+                : provider.GetRegulatoryRate(_operation.MainCurrencyCode, _operation.ReferenceDate)?.RateToDzd);
+
+        if (mainCurrencyRegulatoryRate is not > 0m)
+        {
+            CustomsValueDisplayAmount = null;
+            return;
+        }
+
+        decimal amountInMainCurrency = TotalValeurDouaneDzd / mainCurrencyRegulatoryRate.Value;
+
+        if (string.Equals(_operation.MainCurrencyCode, CustomsValueDisplayCurrencyIso, StringComparison.OrdinalIgnoreCase))
+        {
+            CustomsValueDisplayAmount = Math.Round(amountInMainCurrency, 2, MidpointRounding.AwayFromZero);
+            return;
+        }
+
+        var commercialConversion = _engineFactory.CreateCommercialConversionService();
+        var (crossRate, _, _) = commercialConversion.ResolveCrossRate(
+            _operation.MainCurrencyCode, CustomsValueDisplayCurrencyIso, _operation.ReferenceDate, null);
+
+        CustomsValueDisplayAmount = crossRate > 0m
+            ? Math.Round(amountInMainCurrency * crossRate, 2, MidpointRounding.AwayFromZero)
+            : null;
     }
     public string ExchangeRateInfo { get => _exchangeRateInfo; private set => SetField(ref _exchangeRateInfo, value); }
     public string IncotermGuidance { get => _incotermGuidance; private set => SetField(ref _incotermGuidance, value); }
@@ -536,12 +598,20 @@ public sealed class ImportDetailViewModel : ObservableObject
         bool isCfrFreightAlreadyIncluded = _operation.Incoterm == IncotermCode.CFR
             && template.CategoryCode.Contains("FRET", StringComparison.OrdinalIgnoreCase);
 
+        // Revue du 2026-10-02 (demande utilisateur, Section 2 — règle de pré-sélection de la devise d'un
+        // frais) : un frais normalement payé EN ALGÉRIE (transport port -> entrepôt, manutention locale,
+        // magasinage, transit, frais bancaires, RPS...) est proposé en DA par défaut ; un frais normalement
+        // payé DANS LE PAYS D'EXPÉDITION (fret international, frais export, assurance...) est proposé dans
+        // la devise de la facture/importation. Reste TOUJOURS modifiable ensuite par l'utilisateur (voir
+        // FeeRowViewModel.CurrencyCode) — jamais une conversion forcée de tous les frais vers une devise unique.
+        string defaultFeeCurrency = template.DefaultIsLocalCurrency ? "DZD" : _operation.MainCurrencyCode;
+
         var fee = new ImportFee
         {
             FeeCategoryCode = template.CategoryCode,
             FeeName = template.DefaultLabelFr,
             Amount = 0m,
-            CurrencyCode = _operation.MainCurrencyCode,
+            CurrencyCode = defaultFeeCurrency,
             AllocationMethod = template.SuggestedAllocationMethod,
             IncludeInCustomsValue = isCfrFreightAlreadyIncluded ? false : template.DefaultIncludeInCustomsValue,
             CustomsTreatment = isCfrFreightAlreadyIncluded
@@ -669,6 +739,19 @@ public sealed class ImportDetailViewModel : ObservableObject
             Anomalies.Clear();
             foreach (var a in summary.Anomalies.OrderByDescending(a => a.Severity))
                 Anomalies.Add(a);
+
+            // Section 7 (menu "Notifications") : résumé regroupé par type — niveau IMPORTATION, jamais
+            // répété par article (le détail complet par article reste disponible via Anomalies ci-dessus,
+            // affiché uniquement si l'utilisateur clique sur "Voir les détails").
+            AnomalyGroups.Clear();
+            foreach (var group in AnomalyGroupingService.GroupByCode(summary.Anomalies))
+                AnomalyGroups.Add(group);
+
+            NotificationBannerFr = summary.Anomalies.Count == 0
+                ? "✓ Aucune anomalie détectée pour cette importation."
+                : summary.HasBlockingAnomalies
+                    ? $"🚫 Vérification requise — Cette importation contient {AnomalyGroups.Count} type(s) d'anomalies, dont au moins une BLOQUANTE : le coût de revient ne peut pas être considéré comme définitif."
+                    : $"⚠ Vérification requise — Cette importation contient des données ou taux qui nécessitent une vérification avant validation définitive ({AnomalyGroups.Count} type(s) d'éléments à vérifier).";
 
             HasBlockingAnomalies = summary.HasBlockingAnomalies;
             TotalCoutRevientDzd = summary.TotalRealCostOfGoodsDzd;

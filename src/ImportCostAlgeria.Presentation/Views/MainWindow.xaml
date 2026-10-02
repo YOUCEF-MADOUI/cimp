@@ -21,8 +21,24 @@
     -->
     <DockPanel>
         <Menu DockPanel.Dock="Top" FontSize="13">
+            <!-- Revue du 2026-10-02 (demande utilisateur, Sections 9 & 18) : Export Excel/PDF déplacés ici
+                 depuis l'ancien onglet "Calcul & Contrôles" (désormais "Notifications") — REUTILISE
+                 exactement les mêmes commandes (CurrentView.ExportExcelCommand/ExportPdfCommand, portées
+                 par ImportDetailViewModel), aucune logique dupliquée. Ces commandes ne sont actives que
+                 lorsque l'écran affiché est la fiche détaillée d'une importation (sinon absentes -> grisées,
+                 comportement identique au menu Édition). "Enregistrer sous" et "Imprimer" ne sont PAS
+                 ajoutés : aucun service correspondant n'existe aujourd'hui dans CIMP et la consigne
+                 "réutiliser les services existants, ne jamais dupliquer la logique" interdit d'en inventer
+                 un artificiellement pour remplir le menu (voir rapport final). -->
             <MenuItem Header="_Fichier">
                 <MenuItem Header="Nouvelle importation" Command="{Binding NewImportCommand}" />
+                <MenuItem Header="Ouvrir l'importation sélectionnée" Command="{Binding CurrentView.OpenCommand}" />
+                <MenuItem Header="Enregistrer" Command="{Binding CurrentView.SaveCommand}" />
+                <Separator />
+                <MenuItem Header="Importer Excel / CSV..." Command="{Binding CurrentView.ImportExcelCommand}" />
+                <Separator />
+                <MenuItem Header="Exporter en Excel..." Command="{Binding CurrentView.ExportExcelCommand}" />
+                <MenuItem Header="Exporter en PDF..." Command="{Binding CurrentView.ExportPdfCommand}" />
                 <Separator />
                 <MenuItem Header="Quitter" Command="{Binding QuitCommand}" />
             </MenuItem>

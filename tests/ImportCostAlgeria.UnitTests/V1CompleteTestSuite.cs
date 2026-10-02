@@ -118,6 +118,13 @@ public sealed class V1CompleteTestSuite
         validator.ValidateIncotermRequiredFees(exwWithoutExportFees, anomalies);
         Assert.Contains(anomalies, a => a.AnomalyCode == "EXW_MISSING_REQUIRED_FEES");
 
+        // Revue du 2026-10-02 (demande utilisateur, Section 6 — "CFR ne doit plus demander d'assurance
+        // manquante") : CORRECTION du comportement attendu par ce test. Selon les Incoterms 2020, le
+        // vendeur n'a PAS l'obligation de souscrire une assurance pour l'acheteur en CFR (contrairement à
+        // CIF) — l'ancienne assertion "CFR_MISSING_INSURANCE doit être levée" reposait sur une mauvaise
+        // interprétation de la règle et a été explicitement signalée comme un bug par l'utilisateur. Ce
+        // test vérifie maintenant l'inverse : l'absence d'assurance en CFR ne doit JAMAIS lever d'anomalie
+        // (ni CFR_MISSING_INSURANCE, ni aucune autre anomalie liée à l'assurance).
         var cfrWithoutInsurance = new ImportOperation
         {
             CompanyId = Guid.NewGuid(),
@@ -133,7 +140,8 @@ public sealed class V1CompleteTestSuite
 
         anomalies.Clear();
         validator.ValidateIncotermRequiredFees(cfrWithoutInsurance, anomalies);
-        Assert.Contains(anomalies, a => a.AnomalyCode == "CFR_MISSING_INSURANCE");
+        Assert.DoesNotContain(anomalies, a => a.AnomalyCode == "CFR_MISSING_INSURANCE");
+        Assert.DoesNotContain(anomalies, a => a.AnomalyCode.Contains("INSURANCE", StringComparison.OrdinalIgnoreCase));
     }
 
     // 5, 6, 7, 9, 10, 13. Test Complet Valeur Transactionnelle, DD, DAPS, TVA, Répartition, Arrondis & Différence Excel/Réglementaire

@@ -662,13 +662,18 @@ public sealed class CustomsValueCalculator
                 break;
 
             case IncotermCode.CFR:
-                if (!hasInsurance)
-                {
-                    anomalies.Add(new CalculationAnomaly(
-                        AnomalySeverity.Avertissement,
-                        "CFR_MISSING_INSURANCE",
-                        "⚠️ Incoterm CFR mais assurance absente (Art. 16 octies §1 e) du Code des Douanes)."));
-                }
+                // Revue du 2026-10-02 (demande utilisateur, Section 6 — "CFR ne doit plus demander
+                // d'assurance manquante") : selon les Incoterms 2020, le VENDEUR n'a PAS l'obligation de
+                // souscrire une assurance pour l'acheteur en CFR (cette obligation n'existe qu'en CIF).
+                // L'ancienne anomalie CFR_MISSING_INSURANCE a donc été SUPPRIMÉE — l'absence d'assurance en
+                // CFR est un fonctionnement NORMAL, jamais une anomalie à signaler. Important : cela ne
+                // signifie PAS que "l'assurance est incluse dans le fret" (ce serait une autre erreur) —
+                // simplement qu'elle n'est pas exigée côté vendeur. Si l'utilisateur saisit malgré tout une
+                // assurance comme frais, elle continue d'être traitée normalement selon ses propres cases
+                // "Inclus valeur en douane"/"Inclus coût de revient" (aucun traitement spécial requis ici).
+                // Le traitement CIF (où l'assurance reste une exigence documentée) n'existe pas encore en V1
+                // (IncotermCode ne liste que EXW/FOB/CFR) — le jour où CIF sera ajouté, restaurer un contrôle
+                // équivalent à EXW/FOB UNIQUEMENT pour ce nouveau cas, jamais pour CFR.
 
                 // Revue du 2026-10-02 (cas de référence D10 réel, Section 6 — CRITIQUE : éviter le double
                 // comptage du fret). En Incoterm CFR, le prix facturé (PTFN) inclut DÉJÀ le fret jusqu'au

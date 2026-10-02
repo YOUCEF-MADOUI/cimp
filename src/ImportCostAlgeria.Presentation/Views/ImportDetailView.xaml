@@ -254,6 +254,13 @@
                                     </DataTemplate>
                                 </DataGridTemplateColumn.CellEditingTemplate>
                             </DataGridTemplateColumn>
+                            <!-- Revue du 2026-10-02 (demande utilisateur, Section 2 — "restaurer le choix de
+                                 devise des frais") : colonne "Devise" réintroduite en ComboBox éditable (DA
+                                 pré-sélectionné pour les frais locaux, devise de la facture pour les frais à
+                                 l'étranger — voir ImportDetailViewModel.AddFeeFromTemplate), modifiable à tout
+                                 moment par l'utilisateur. Liste centralisée et extensible : ImportFeeCatalog.SupportedFeeCurrencies. -->
+                            <DataGridComboBoxColumn Header="Devise" SelectedItemBinding="{Binding CurrencyCode}" Width="80"
+                                                     ItemsSource="{x:Static core:ImportFeeCatalog.SupportedFeeCurrencies}" />
                             <DataGridComboBoxColumn Header="Méthode de répartition" SelectedItemBinding="{Binding AllocationMethod}" Width="150"
                                                      ItemsSource="{x:Static core:ImportFeeCatalog.AllocationMethodsForV1}" />
                             <DataGridCheckBoxColumn Header="Inclus valeur en douane" Binding="{Binding IncludeInCustomsValue}" Width="130" />
@@ -360,13 +367,54 @@
                 </ScrollViewer>
             </TabItem>
 
-            <TabItem Header="Calcul &amp; Contrôles">
-                <DockPanel>
-                    <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,4,0,8">
-                        <Button Content="Exporter Excel" Command="{Binding ExportExcelCommand}" />
-                        <Button Content="Exporter PDF" Command="{Binding ExportPdfCommand}" />
-                    </StackPanel>
-                    <DataGrid ItemsSource="{Binding Anomalies}" IsReadOnly="True" AutoGenerateColumns="False">
+            <!-- Revue du 2026-10-02 (demande utilisateur, Sections 7 & 8) : onglet renommé "Calcul &
+                 Contrôles" -> "Notifications" (les boutons Exporter Excel/PDF ont été déplacés dans le menu
+                 "Fichier" — voir MainWindow.xaml — réutilisant EXACTEMENT les mêmes commandes, aucune
+                 logique dupliquée). Ce volet présente désormais une notification UNIQUE au niveau de
+                 l'IMPORTATION (regroupée par type, jamais répétée par article), avec un bouton "Voir les
+                 détails" pour afficher/masquer la liste complète par article en dessous. -->
+            <TabItem Header="Notifications">
+                <DockPanel Margin="4">
+                    <Border DockPanel.Dock="Top" Padding="10" Margin="0,0,0,8" Background="#FFF4CE">
+                        <TextBlock Text="{Binding NotificationBannerFr}" FontWeight="Bold" TextWrapping="Wrap" FontSize="14" Foreground="#7A5B00" />
+                    </Border>
+
+                    <!-- Section 7 : résumé regroupé PAR TYPE (une seule ligne par anomalie, avec le nombre
+                         d'articles concernés) — "Éléments à vérifier". -->
+                    <DataGrid DockPanel.Dock="Top" ItemsSource="{Binding AnomalyGroups}" IsReadOnly="True" AutoGenerateColumns="False"
+                              MaxHeight="220" Margin="0,0,0,8">
+                        <DataGrid.Columns>
+                            <DataGridTextColumn Header="Sévérité" Binding="{Binding Severity}" Width="110" />
+                            <DataGridTextColumn Header="Élément à vérifier" Binding="{Binding LabelFr}" Width="*" />
+                            <DataGridTextColumn Header="Occurrences" Binding="{Binding OccurrenceCount}" Width="100" />
+                        </DataGrid.Columns>
+                        <DataGrid.RowStyle>
+                            <Style TargetType="DataGridRow">
+                                <Setter Property="Background" Value="{Binding Severity, Converter={StaticResource SeverityToBrushConverter}}" />
+                            </Style>
+                        </DataGrid.RowStyle>
+                    </DataGrid>
+
+                    <Button DockPanel.Dock="Top" HorizontalAlignment="Left" Margin="0,0,0,8" Padding="8,4"
+                            Command="{Binding ToggleAnomalyDetailsCommand}">
+                        <TextBlock>
+                            <TextBlock.Style>
+                                <Style TargetType="TextBlock">
+                                    <Setter Property="Text" Value="Voir les détails ▼" />
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding ShowAnomalyDetails}" Value="True">
+                                            <Setter Property="Text" Value="Masquer les détails ▲" />
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </TextBlock.Style>
+                        </TextBlock>
+                    </Button>
+
+                    <!-- Section 7 : détail PAR ARTICLE — affiché uniquement sur demande explicite de
+                         l'utilisateur ("Voir les détails"), jamais par défaut (évite la répétition). -->
+                    <DataGrid ItemsSource="{Binding Anomalies}" IsReadOnly="True" AutoGenerateColumns="False"
+                              Visibility="{Binding ShowAnomalyDetails, Converter={StaticResource BoolToVisibilityConverter}}">
                         <DataGrid.Columns>
                             <DataGridTextColumn Header="Sévérité" Binding="{Binding Severity}" Width="110" />
                             <DataGridTextColumn Header="Code" Binding="{Binding AnomalyCode}" Width="160" />
