@@ -162,6 +162,10 @@ public sealed class ImportDetailViewModel : ObservableObject
         IsProvisionalCalculation = false;
         ProvisionalMessageFr = string.Empty;
 
+        OnPropertyChanged(nameof(MainCurrencyRateSectionHeader));
+        OnPropertyChanged(nameof(MainCurrencyManualRateLabel));
+        OnPropertyChanged(nameof(AuthorizationCurrencyRateSectionHeader));
+        OnPropertyChanged(nameof(AuthorizationCurrencyManualRateLabel));
         RefreshExchangeRateInfo();
         RefreshAuthorizationExchangeRateInfo();
         RefreshIncotermGuidance();
@@ -444,6 +448,17 @@ public sealed class ImportDetailViewModel : ObservableObject
     public string AuthorizationExchangeRateInfo { get => _authorizationExchangeRateInfo; private set => SetField(ref _authorizationExchangeRateInfo, value); }
     public string AuthorizationConversionSummary { get => _authorizationConversionSummary; private set => SetField(ref _authorizationConversionSummary, value); }
 
+    /// <summary>
+    /// Correction 2026-10-02 (demande utilisateur) : libellés DYNAMIQUES de section "Taux [devise]" /
+    /// "1 [devise] = X DA", utilisés par la vue pour ne JAMAIS afficher ni demander un taux croisé direct
+    /// (ex: "1 EUR = X USD"). Chaque devise (facture ET autorisation) n'a QUE son propre taux vers le DZD ;
+    /// le taux commercial affiché (<see cref="AuthorizationExchangeRateInfo"/>) est toujours CALCULÉ.
+    /// </summary>
+    public string MainCurrencyRateSectionHeader => $"Taux {_operation?.MainCurrencyCode ?? "—"}";
+    public string MainCurrencyManualRateLabel => $"1 {_operation?.MainCurrencyCode ?? "—"} = X DA :";
+    public string AuthorizationCurrencyRateSectionHeader => $"Taux {_operation?.AuthorizationCurrencyCode ?? "—"}";
+    public string AuthorizationCurrencyManualRateLabel => $"1 {_operation?.AuthorizationCurrencyCode ?? "—"} = X DA :";
+
     public bool IsManualRateMode
     {
         get => _operation?.ManualExchangeRateOverride.HasValue ?? false;
@@ -485,27 +500,50 @@ public sealed class ImportDetailViewModel : ObservableObject
             RefreshAuthorizationExchangeRateInfo();
             OnPropertyChanged(nameof(NeedsAuthorizationDisplay));
             OnPropertyChanged(nameof(AuthorizationCurrencySymbol));
+            OnPropertyChanged(nameof(AuthorizationCurrencyRateSectionHeader));
+            OnPropertyChanged(nameof(AuthorizationCurrencyManualRateLabel));
         }
     }
 
-    /// <summary>Taux commercial MANUEL (devise facture -> devise d'autorisation), distinct du taux réglementaire manuel.</summary>
+    /// <summary>
+    /// Correction 2026-10-02 (demande utilisateur — "ne JAMAIS saisir directement un taux EUR -> USD") :
+    /// REMPLACE l'ancien "taux commercial manuel" (qui était à tort un taux croisé direct devise facture ->
+    /// devise d'autorisation). Ce bascule désormais un taux RÉGLEMENTAIRE manuel "1 [AuthorizationCurrencyCode]
+    /// = X DA" — EXACTEMENT symétrique à <see cref="IsManualRateMode"/>/<see cref="ManualRateValue"/>, mais
+    /// pour <see cref="AuthorizationCurrencyCode"/> au lieu de <see cref="Core.Domain.ImportOperation.MainCurrencyCode"/>.
+    /// Le taux commercial affiché (<see cref="AuthorizationExchangeRateInfo"/>) reste TOUJOURS calculé à
+    /// partir de ce taux et du taux réglementaire de la devise facture — jamais saisi directement ici.
+    /// </summary>
     public bool IsManualAuthorizationRateMode
     {
-        get => _operation?.ManualAuthorizationExchangeRateOverride.HasValue ?? false;
+        get => _operation?.ManualAuthorizationCurrencyRateToDzd.HasValue ?? false;
         set
         {
-            if (!value) _operation.ManualAuthorizationExchangeRateOverride = null;
-            else _operation.ManualAuthorizationExchangeRateOverride ??= 0m;
+            if (_operation == null) return;
+            if (!value) _operation.ManualAuthorizationCurrencyRateToDzd = null;
+            else _operation.ManualAuthorizationCurrencyRateToDzd ??= 0m;
             OnPropertyChanged();
             OnPropertyChanged(nameof(ManualAuthorizationRateValue));
             RefreshAuthorizationExchangeRateInfo();
         }
     }
 
+    /// <summary>Taux réglementaire manuel "1 [AuthorizationCurrencyCode] = X DA" (jamais un taux croisé), undo-able.</summary>
     public decimal? ManualAuthorizationRateValue
     {
-        get => _operation?.ManualAuthorizationExchangeRateOverride;
-        set { _operation.ManualAuthorizationExchangeRateOverride = value; OnPropertyChanged(); RefreshAuthorizationExchangeRateInfo(); }
+        get => _operation?.ManualAuthorizationCurrencyRateToDzd;
+        set
+        {
+            decimal? oldValue = _operation.ManualAuthorizationCurrencyRateToDzd;
+            if (oldValue == value) return;
+            _operation.ManualAuthorizationCurrencyRateToDzd = value;
+            OnPropertyChanged();
+            UndoRedo?.RecordFieldChange(
+                "Taux de change manuel (devise d'autorisation)",
+                v => { _operation.ManualAuthorizationCurrencyRateToDzd = v; OnPropertyChanged(nameof(ManualAuthorizationRateValue)); RefreshAuthorizationExchangeRateInfo(); },
+                oldValue, value);
+            RefreshAuthorizationExchangeRateInfo();
+        }
     }
 
     /// <summary>
@@ -624,6 +662,13 @@ public sealed class ImportDetailViewModel : ObservableObject
     /// Section 11 du plan multi-devises : affiche clairement la devise de la facture, le taux commercial
     /// (officiel ou manuel) vers la devise de l'autorisation d'importation, et le montant équivalent.
     /// Jamais mélangé avec <see cref="RefreshExchangeRateInfo"/> (conversion réglementaire vers DZD).
+    /// Correction 2026-10-02 (demande utilisateur — "ne JAMAIS saisir ni afficher un taux EUR -> USD comme
+    /// s'il s'agissait du taux USD/DZD") : le taux commercial devise facture -&gt; devise d'autorisation
+    /// n'est JAMAIS lu depuis un taux croisé direct (saisi ou publié) : il est TOUJOURS calculé ICI à partir
+    /// de DEUX taux réglementaires indépendants par rapport au DZD (EXACTEMENT la même méthode et la même
+    /// formule que <see cref="ImportCostAlgeria.CalculationEngine.ImportCalculationOrchestrator"/>, Section
+    /// 2bis) :
+    ///     Taux_Facture→Autorisation = (Facture -&gt; DZD) / (Autorisation -&gt; DZD)
     /// </summary>
     private void RefreshAuthorizationExchangeRateInfo()
     {
@@ -635,19 +680,38 @@ public sealed class ImportDetailViewModel : ObservableObject
             return;
         }
 
-        if (_operation.ManualAuthorizationExchangeRateOverride.HasValue && _operation.ManualAuthorizationExchangeRateOverride.Value > 0m)
+        var currencyCalculator = _engineFactory.CreateCurrencyCalculator();
+        var (mainToDzd, mainOfficial, _) = currencyCalculator.ResolveRate(
+            _operation.MainCurrencyCode, _operation.ReferenceDate, _operation.ManualExchangeRateOverride);
+        var (authToDzd, authOfficial, _) = currencyCalculator.ResolveRate(
+            _operation.AuthorizationCurrencyCode, _operation.ReferenceDate, _operation.ManualAuthorizationCurrencyRateToDzd);
+
+        bool mainIsManual = _operation.ManualExchangeRateOverride.HasValue && _operation.ManualExchangeRateOverride.Value > 0m;
+        bool authIsManual = _operation.ManualAuthorizationCurrencyRateToDzd.HasValue && _operation.ManualAuthorizationCurrencyRateToDzd.Value > 0m;
+
+        string mainLine = mainToDzd > 0m
+            ? $"1 {_operation.MainCurrencyCode} = {mainToDzd:F4} DA" + (mainIsManual ? " (taux manuel)" : mainOfficial != null ? $" ({mainOfficial.SourceName})" : "")
+            : $"INFORMATION NON DÉTERMINÉE : aucun taux officiel pour {_operation.MainCurrencyCode} au {_operation.ReferenceDate:dd/MM/yyyy}.";
+
+        string authLine = authToDzd > 0m
+            ? $"1 {_operation.AuthorizationCurrencyCode} = {authToDzd:F4} DA" + (authIsManual ? " (taux manuel)" : authOfficial != null ? $" ({authOfficial.SourceName})" : "")
+            : $"INFORMATION NON DÉTERMINÉE : aucun taux officiel pour {_operation.AuthorizationCurrencyCode} au {_operation.ReferenceDate:dd/MM/yyyy}. Publiez-le dans l'écran \"Taux de change\" ou saisissez un taux manuel ci-dessous.";
+
+        if (mainToDzd <= 0m || authToDzd <= 0m)
         {
-            AuthorizationExchangeRateInfo = $"⚠️ TAUX MANUEL : 1 {_operation.MainCurrencyCode} = {_operation.ManualAuthorizationExchangeRateOverride.Value:F4} {_operation.AuthorizationCurrencyCode} (saisi par l'utilisateur).";
+            AuthorizationExchangeRateInfo =
+                $"Taux {_operation.MainCurrencyCode} : {mainLine}\n" +
+                $"Taux {_operation.AuthorizationCurrencyCode} : {authLine}\n" +
+                "Conversion commerciale calculée automatiquement : indisponible tant que les deux taux réglementaires ci-dessus ne sont pas connus.";
             return;
         }
 
-        var conversionService = _engineFactory.CreateCommercialConversionService();
-        var (rate, official, _) = conversionService.ResolveCrossRate(
-            _operation.MainCurrencyCode, _operation.AuthorizationCurrencyCode, _operation.ReferenceDate, null);
-
-        AuthorizationExchangeRateInfo = official == null
-            ? $"INFORMATION NON DÉTERMINÉE : aucun taux commercial officiel enregistré pour {_operation.MainCurrencyCode} → {_operation.AuthorizationCurrencyCode} au {_operation.ReferenceDate:dd/MM/yyyy}. Publiez-le dans l'écran \"Taux de change\" ou saisissez un taux manuel."
-            : $"Taux commercial officiel : 1 {_operation.MainCurrencyCode} = {rate:F4} {_operation.AuthorizationCurrencyCode} ({official.SourceName}, valide depuis le {official.ValidFrom:dd/MM/yyyy}).";
+        // NE JAMAIS inverser cette division (Section "corrections utilisateur" du 2026-10-02).
+        decimal crossRate = mainToDzd / authToDzd;
+        AuthorizationExchangeRateInfo =
+            $"Taux {_operation.MainCurrencyCode} : {mainLine}\n" +
+            $"Taux {_operation.AuthorizationCurrencyCode} : {authLine}\n" +
+            $"Conversion commerciale calculée automatiquement (jamais saisie directement) : 1 {_operation.MainCurrencyCode} ≈ {crossRate:F4} {_operation.AuthorizationCurrencyCode}.";
     }
 
     private void RefreshIncotermGuidance()

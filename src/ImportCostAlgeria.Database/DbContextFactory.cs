@@ -142,7 +142,12 @@ public static class DbContextFactory
         {
             AddColumnIfMissing(connection, "ExchangeRates", "QuoteCurrencyCode", "TEXT NOT NULL DEFAULT 'DZD'");
             AddColumnIfMissing(connection, "ImportOperations", "AuthorizationCurrencyCode", "TEXT NOT NULL DEFAULT 'USD'");
-            AddColumnIfMissing(connection, "ImportOperations", "ManualAuthorizationExchangeRateOverride", "TEXT NULL");
+            // Correction 2026-10-02 (demande utilisateur — "ne jamais saisir directement EUR -> USD") :
+            // remplace l'ancienne colonne ManualAuthorizationExchangeRateOverride (taux croisé direct), qui
+            // n'est plus utilisée par le code (reste en base sur une installation existante, inoffensive,
+            // jamais relue). La nouvelle colonne porte un taux réglementaire manuel PAR DEVISE (symétrique à
+            // ManualExchangeRateOverride), jamais un taux croisé.
+            AddColumnIfMissing(connection, "ImportOperations", "ManualAuthorizationCurrencyRateToDzd", "TEXT NULL");
             AddColumnIfMissing(connection, "Users", "MustChangePasswordOnNextLogin", "INTEGER NOT NULL DEFAULT 0");
             // Revue du 2026-10-01 (point 5 — Droits et taxes par code SH) : RegulatoryRule.IsApplicable.
             // DEFAULT 1 (true) préserve le comportement de toutes les règles déjà publiées (applicables).

@@ -31,6 +31,15 @@ public sealed class EngineFactory
     public CurrencyConversionService CreateCommercialConversionService() =>
         new(CreateExchangeRateProvider());
 
+    /// <summary>
+    /// Résolution RÉGLEMENTAIRE taux devise -&gt; DZD (officiel ou manuel PAR DEVISE). Exposé ici pour que la
+    /// vue "Taux de change & Incoterm" puisse afficher/dériver le taux commercial EUR/USD EXACTEMENT comme
+    /// ImportCalculationOrchestrator (même méthode, même formule : (A -&gt; DZD) / (B -&gt; DZD)), sans jamais
+    /// dupliquer une logique de taux croisé direct dans le ViewModel.
+    /// </summary>
+    public CurrencyCalculator CreateCurrencyCalculator() =>
+        new(CreateExchangeRateProvider());
+
     public ImportCalculationOrchestrator CreateOrchestrator()
     {
         var rateProvider = new EfExchangeRateProvider(_dbFactory);

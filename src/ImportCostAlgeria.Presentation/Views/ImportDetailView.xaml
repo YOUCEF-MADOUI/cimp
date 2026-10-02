@@ -323,13 +323,13 @@
             <TabItem Header="Taux de change &amp; Incoterm">
                 <ScrollViewer VerticalScrollBarVisibility="Auto">
                 <StackPanel Margin="8">
-                    <TextBlock Text="Taux de change applicable" FontWeight="Bold" FontSize="14" Margin="0,0,0,4" />
+                    <TextBlock Text="{Binding MainCurrencyRateSectionHeader}" FontWeight="Bold" FontSize="14" Margin="0,0,0,4" />
                     <TextBlock Text="{Binding ExchangeRateInfo}" TextWrapping="Wrap" Margin="0,0,0,12" />
 
                     <CheckBox Content="Utiliser un taux de change manuel (⚠️ déclenchera une alerte si différent du taux officiel)"
                               IsChecked="{Binding IsManualRateMode}" />
                     <StackPanel Orientation="Horizontal" Margin="0,4,0,16" Visibility="{Binding IsManualRateMode, Converter={StaticResource BoolToVisibilityConverter}}">
-                        <Label Content="Taux manuel (1 devise = X DA) :" />
+                        <Label Content="{Binding MainCurrencyManualRateLabel}" />
                         <TextBox Text="{Binding ManualRateValue, UpdateSourceTrigger=LostFocus, Converter={StaticResource FlexibleDecimalConverter}}" Width="120" />
                     </StackPanel>
 
@@ -340,14 +340,22 @@
                         <Label Content="Devise de l'autorisation d'importation :" />
                         <TextBox Text="{Binding AuthorizationCurrencyCode, UpdateSourceTrigger=PropertyChanged}" Width="80" />
                     </StackPanel>
-                    <TextBlock Text="{Binding AuthorizationExchangeRateInfo}" TextWrapping="Wrap" Margin="0,0,0,4" />
 
-                    <CheckBox Content="Utiliser un taux commercial manuel (⚠️ distinct du taux réglementaire ci-dessus)"
+                    <!-- Correction 2026-10-02 (demande utilisateur) : JAMAIS de champ "1 [devise facture] = X
+                         [devise autorisation]" (ex: "1 EUR = X USD") saisi directement. La devise
+                         d'autorisation (ex: USD) a SON PROPRE taux réglementaire vers le DZD, saisi/affiché
+                         exactement comme celui de la devise facture ci-dessus. Le taux commercial
+                         EUR/USD n'est qu'une information CALCULÉE, affichée ci-dessous (AuthorizationExchangeRateInfo),
+                         jamais un champ de saisie. -->
+                    <TextBlock Text="{Binding AuthorizationCurrencyRateSectionHeader}" FontWeight="Bold" FontSize="13" Margin="0,8,0,4" />
+                    <CheckBox Content="Utiliser un taux manuel pour la devise d'autorisation (⚠️ taux réglementaire PAR DEVISE, distinct de tout taux croisé)"
                               IsChecked="{Binding IsManualAuthorizationRateMode}" />
                     <StackPanel Orientation="Horizontal" Margin="0,4,0,8" Visibility="{Binding IsManualAuthorizationRateMode, Converter={StaticResource BoolToVisibilityConverter}}">
-                        <Label Content="Taux manuel (1 devise facture = X devise autorisation) :" />
+                        <Label Content="{Binding AuthorizationCurrencyManualRateLabel}" />
                         <TextBox Text="{Binding ManualAuthorizationRateValue, UpdateSourceTrigger=LostFocus, Converter={StaticResource FlexibleDecimalConverter}}" Width="120" />
                     </StackPanel>
+
+                    <TextBlock Text="{Binding AuthorizationExchangeRateInfo}" TextWrapping="Wrap" Margin="0,4,0,4" FontStyle="Italic" />
 
                     <TextBlock Text="{Binding AuthorizationConversionSummary}" FontWeight="Bold" TextWrapping="Wrap" Margin="0,0,0,16" />
 

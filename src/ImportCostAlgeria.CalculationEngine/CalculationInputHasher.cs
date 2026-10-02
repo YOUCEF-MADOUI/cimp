@@ -38,7 +38,7 @@ public static class CalculationInputHasher
         Add("MainCurrency", operation.MainCurrencyCode);
         Add("AuthorizationCurrency", operation.AuthorizationCurrencyCode);
         Add("ManualExchangeRateOverride", operation.ManualExchangeRateOverride);
-        Add("ManualAuthorizationExchangeRateOverride", operation.ManualAuthorizationExchangeRateOverride);
+        Add("ManualAuthorizationCurrencyRateToDzd", operation.ManualAuthorizationCurrencyRateToDzd);
         Add("Incoterm", operation.Incoterm);
         Add("ArrivalPort", operation.ArrivalPortOrBorder);
         Add("TransportMode", operation.TransportMode);

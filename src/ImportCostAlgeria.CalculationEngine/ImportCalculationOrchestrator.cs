@@ -852,9 +852,15 @@ public sealed class ImportCalculationOrchestrator
         if (mainRateAnomaly != null)
             anomalies.Add(mainRateAnomaly);
 
-        // 2bis. Résolution du taux de change COMMERCIAL (Section 6 & 14 du plan multi-devises) : devise
-        // facture -> devise de l'autorisation d'importation (ex: EUR -> USD). Totalement indépendant de la
-        // conversion réglementaire ci-dessus (Section 22 : "ne pas mélanger"). N'alimente JAMAIS
+        // 2bis. Résolution du taux de change COMMERCIAL (correction 2026-10-02, demande utilisateur — "ne
+        // JAMAIS saisir ni interpréter directement un taux EUR -> USD") : devise facture -> devise de
+        // l'autorisation d'importation (ex: EUR -> USD). TOUJOURS DÉRIVÉ MATHÉMATIQUEMENT de deux taux
+        // RÉGLEMENTAIRES par rapport au DZD (jamais un taux croisé saisi ou publié directement) :
+        //   Taux_Facture→Autorisation = (Facture -> DZD) / (Autorisation -> DZD)
+        // Chaque taux DZD est résolu EXACTEMENT comme le taux réglementaire principal ci-dessus (même
+        // méthode CurrencyCalculator.ResolveRate, même possibilité de taux manuel PAR DEVISE via
+        // ManualAuthorizationCurrencyRateToDzd si aucun taux officiel n'est encore publié) — jamais de
+        // mélange avec la conversion douanière réelle (Section 22 : "ne pas mélanger"). N'alimente JAMAIS
         // CustomsOutcome / EconomicOutcome : reste une information séparée, affichée et exportée à part.
         bool needsAuthorizationConversion = !string.IsNullOrWhiteSpace(operation.AuthorizationCurrencyCode)
             && !string.Equals(operation.AuthorizationCurrencyCode, operation.MainCurrencyCode, StringComparison.OrdinalIgnoreCase);
@@ -865,24 +871,27 @@ public sealed class ImportCalculationOrchestrator
 
         if (needsAuthorizationConversion)
         {
-            var (rate, official, commercialAnomaly) = _commercialConversionService.ResolveCrossRate(
-                operation.MainCurrencyCode,
+            var (authCurrencyToDzd, authCurrencyOfficial, authCurrencyAnomaly) = _currencyCalculator.ResolveRate(
                 operation.AuthorizationCurrencyCode,
                 operation.ReferenceDate,
-                operation.ManualAuthorizationExchangeRateOverride);
+                operation.ManualAuthorizationCurrencyRateToDzd);
 
-            authorizationRate = rate;
-            authorizationOfficialRate = official;
-            authorizationRateIsManual = operation.ManualAuthorizationExchangeRateOverride.HasValue
-                && operation.ManualAuthorizationExchangeRateOverride.Value > 0m;
+            // NE JAMAIS inverser cette formule (division, jamais une multiplication par le taux DZD de la
+            // devise d'autorisation) : voir ImportCostAlgeria.Core.Domain.ImportOperation.ManualAuthorizationCurrencyRateToDzd.
+            authorizationRate = authCurrencyToDzd == 0m ? 0m : mainRateToDzd / authCurrencyToDzd;
+            authorizationOfficialRate = authCurrencyOfficial;
+            authorizationRateIsManual =
+                (operation.ManualExchangeRateOverride.HasValue && operation.ManualExchangeRateOverride.Value > 0m) ||
+                (operation.ManualAuthorizationCurrencyRateToDzd.HasValue && operation.ManualAuthorizationCurrencyRateToDzd.Value > 0m);
 
-            if (commercialAnomaly != null)
+            if (authCurrencyAnomaly != null)
             {
                 // La conversion commerciale est informative : une absence de taux ne doit jamais bloquer le
-                // calcul douanier réel (seul un taux réglementaire manquant le peut, Section 2bis/22).
-                anomalies.Add(commercialAnomaly.Severity == AnomalySeverity.Blocage
-                    ? commercialAnomaly with { Severity = AnomalySeverity.Avertissement }
-                    : commercialAnomaly);
+                // calcul douanier réel (seul un taux réglementaire manquant pour la devise FACTURE le peut,
+                // voir le bloc 2 ci-dessus).
+                anomalies.Add(authCurrencyAnomaly.Severity == AnomalySeverity.Blocage
+                    ? authCurrencyAnomaly with { Severity = AnomalySeverity.Avertissement }
+                    : authCurrencyAnomaly);
             }
         }
 

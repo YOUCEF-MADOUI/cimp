@@ -260,7 +260,7 @@ public sealed class ExchangeRateRecord
     /// Pour EUR/USD/DZD en pratique, QuotityUnit vaut 1 (devises à valeur unitaire "normale"), mais le
     /// champ reste disponible pour toute devise future nécessitant une cotation pour plusieurs unités.
     /// Le taux manuel saisi par un utilisateur (<see cref="ImportOperation.ManualExchangeRateOverride"/>,
-    /// <see cref="ImportOperation.ManualAuthorizationExchangeRateOverride"/>) est TOUJOURS exprimé "pour 1
+    /// <see cref="ImportOperation.ManualAuthorizationCurrencyRateToDzd"/>) est TOUJOURS exprimé "pour 1
     /// unité" (convention de l'écran de saisie) : toute comparaison entre un taux manuel et un taux
     /// officiel doit donc impérativement normaliser le taux officiel par sa quotité avant de comparer,
     /// afin que les deux valeurs représentent la même unité économique (voir
@@ -326,8 +326,8 @@ public sealed class ImportOperation
     /// Taux de change MANUEL réglementaire/douanier (<see cref="MainCurrencyCode"/> -&gt; DZD), saisi "pour
     /// 1 unité de devise". Alimente directement le calcul douanier (valeur en douane, droits, taxes) via
     /// <see cref="ImportCostAlgeria.CalculationEngine.CurrencyCalculator.ResolveRate"/>. Ne concerne QUE la
-    /// conversion réglementaire : voir <see cref="ManualAuthorizationExchangeRateOverride"/> pour la
-    /// conversion commerciale distincte vers la devise d'autorisation d'importation (Section 6 & 14).
+    /// conversion réglementaire : voir <see cref="ManualAuthorizationCurrencyRateToDzd"/> pour le taux
+    /// réglementaire de la devise d'autorisation d'importation (Section 6 & 14).
     /// </summary>
     public decimal? ManualExchangeRateOverride { get; set; }
     /// <summary>
@@ -341,12 +341,24 @@ public sealed class ImportOperation
     /// </summary>
     public string AuthorizationCurrencyCode { get; set; } = "USD";
     /// <summary>
-    /// Taux de change MANUEL commercial (<see cref="MainCurrencyCode"/> -&gt; <see cref="AuthorizationCurrencyCode"/>,
-    /// ex: EUR -&gt; USD), saisi "pour 1 unité de devise". Strictement distinct du taux réglementaire
-    /// <see cref="ManualExchangeRateOverride"/> (Section 6 & 22 : "ne pas mélanger conversion commerciale et
-    /// réglementaire"). Null = utiliser le taux commercial officiel enregistré (si disponible).
+    /// Correction 2026-10-02 (demande utilisateur — "NE PLUS JAMAIS saisir directement un taux EUR → USD") :
+    /// REMPLACE l'ancien champ ManualAuthorizationExchangeRateOverride, qui représentait à tort un taux
+    /// croisé DIRECT <see cref="MainCurrencyCode"/> -&gt; <see cref="AuthorizationCurrencyCode"/> (ex: EUR -&gt;
+    /// USD) saisissable par l'utilisateur — c'est exactement ce mécanisme qui permettait d'injecter par
+    /// erreur un ordre de grandeur DZD (ex: ~133) à la place d'un véritable taux EUR→USD (~1,13), produisant
+    /// des montants USD complètement faux (ex: 16,69 € interprétés comme "2 228,45 $" au lieu de ~18,89 $).
+    /// Ce nouveau champ a une sémantique strictement symétrique à <see cref="ManualExchangeRateOverride"/>,
+    /// mais pour <see cref="AuthorizationCurrencyCode"/> au lieu de <see cref="MainCurrencyCode"/> : un taux
+    /// RÉGLEMENTAIRE manuel "1 [AuthorizationCurrencyCode] = X DA", utilisé UNIQUEMENT si aucun taux
+    /// réglementaire officiel n'est encore publié pour cette devise à la date de référence. Le taux
+    /// commercial <see cref="MainCurrencyCode"/> -&gt; <see cref="AuthorizationCurrencyCode"/> (ex: EUR -&gt;
+    /// USD) n'est plus JAMAIS saisi directement : il est TOUJOURS dérivé mathématiquement par
+    /// ImportCalculationOrchestrator via la formule (MainCurrencyCode -&gt; DZD) / (AuthorizationCurrencyCode
+    /// -&gt; DZD) — voir <see cref="ImportCostAlgeria.CalculationEngine.CurrencyCalculator.ResolveRate"/>,
+    /// appelé séparément pour chacune des deux devises. Null = utiliser le taux réglementaire officiel
+    /// enregistré pour <see cref="AuthorizationCurrencyCode"/> (si disponible).
     /// </summary>
-    public decimal? ManualAuthorizationExchangeRateOverride { get; set; }
+    public decimal? ManualAuthorizationCurrencyRateToDzd { get; set; }
     /// <summary>
     /// Revue du 2026-10-02 (Section 15 — "PRCT introuvable → demande UNE FOIS pour l'import, pas par
     /// article") : taux PRCT confirmé manuellement par l'utilisateur pour TOUTE cette importation,

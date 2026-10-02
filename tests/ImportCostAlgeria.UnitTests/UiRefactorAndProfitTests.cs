@@ -54,8 +54,10 @@ public sealed class UiRefactorAndProfitTests
         var rates = new[]
         {
             new ExchangeRateRecord { CurrencyCode = "EUR", QuoteCurrencyCode = "DZD", RateToDzd = 150.7166m, QuotityUnit = 1, ValidFrom = new DateOnly(2026, 1, 1), RateType = "OFFICIEL_DOUANE_ALCES", SourceName = "DGD" },
-            // Revue Section 20 : taux COMMERCIAL distinct (EUR -> USD), jamais dérivé du taux réglementaire ci-dessus.
-            new ExchangeRateRecord { CurrencyCode = "EUR", QuoteCurrencyCode = "USD", RateToDzd = 1.17m, QuotityUnit = 1, ValidFrom = new DateOnly(2026, 1, 1), RateType = "COMMERCIAL", SourceName = "Banque" }
+            // Correction 2026-10-02 (demande utilisateur — "ne jamais publier/saisir un taux croisé EUR -> USD
+            // direct") : le taux commercial EUR -> USD (≈1,17) est désormais TOUJOURS dérivé de deux taux
+            // réglementaires DZD indépendants (jamais un enregistrement "croisé" publié directement).
+            new ExchangeRateRecord { CurrencyCode = "USD", QuoteCurrencyCode = "DZD", RateToDzd = 128.8177m, QuotityUnit = 1, ValidFrom = new DateOnly(2026, 1, 1), RateType = "OFFICIEL_DOUANE_ALCES", SourceName = "DGD" }
         };
         var orchestrator = BuildOrchestrator(rates);
         var company = BuildCompany();
@@ -131,7 +133,8 @@ public sealed class UiRefactorAndProfitTests
         var rates = new[]
         {
             new ExchangeRateRecord { CurrencyCode = "EUR", QuoteCurrencyCode = "DZD", RateToDzd = 150.0m, QuotityUnit = 1, ValidFrom = new DateOnly(2026, 1, 1), RateType = "OFFICIEL_DOUANE_ALCES", SourceName = "DGD" },
-            new ExchangeRateRecord { CurrencyCode = "EUR", QuoteCurrencyCode = "USD", RateToDzd = 1.10m, QuotityUnit = 1, ValidFrom = new DateOnly(2026, 1, 1), RateType = "COMMERCIAL", SourceName = "Banque" }
+            // Correction 2026-10-02 : taux commercial EUR -> USD (≈1,10) dérivé de deux taux DZD, jamais saisi/publié directement.
+            new ExchangeRateRecord { CurrencyCode = "USD", QuoteCurrencyCode = "DZD", RateToDzd = 136.3636m, QuotityUnit = 1, ValidFrom = new DateOnly(2026, 1, 1), RateType = "OFFICIEL_DOUANE_ALCES", SourceName = "DGD" }
         };
         var orchestrator = BuildOrchestrator(rates);
         var company = BuildCompany();
@@ -171,7 +174,8 @@ public sealed class UiRefactorAndProfitTests
         var rates = new[]
         {
             new ExchangeRateRecord { CurrencyCode = "EUR", QuoteCurrencyCode = "DZD", RateToDzd = 150.0m, QuotityUnit = 1, ValidFrom = new DateOnly(2026, 1, 1), RateType = "OFFICIEL_DOUANE_ALCES", SourceName = "DGD" },
-            new ExchangeRateRecord { CurrencyCode = "EUR", QuoteCurrencyCode = "USD", RateToDzd = 1.08m, QuotityUnit = 1, ValidFrom = new DateOnly(2026, 1, 1), RateType = "COMMERCIAL", SourceName = "Banque" }
+            // Correction 2026-10-02 : taux commercial EUR -> USD (≈1,08) dérivé de deux taux DZD, jamais saisi/publié directement.
+            new ExchangeRateRecord { CurrencyCode = "USD", QuoteCurrencyCode = "DZD", RateToDzd = 138.8889m, QuotityUnit = 1, ValidFrom = new DateOnly(2026, 1, 1), RateType = "OFFICIEL_DOUANE_ALCES", SourceName = "DGD" }
         };
         var orchestrator = BuildOrchestrator(rates);
         var company = BuildCompany();

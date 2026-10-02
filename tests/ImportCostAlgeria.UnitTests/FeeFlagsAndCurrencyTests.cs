@@ -357,13 +357,23 @@ public sealed class FeeFlagsAndCurrencyTests
     [Fact]
     public void AuthorizationConversion_ExactUserExample_Qty200_Pu16_69Eur_Rate1_17_Produces19_53UsdUnit()
     {
+        // Correction 2026-10-02 (demande utilisateur — "ne jamais publier/saisir un taux croisé EUR -> USD
+        // direct") : le taux commercial EUR -> USD de 1,17 utilisé par ce test historique est désormais
+        // obtenu en cotant EUR et USD CHACUN séparément en DZD (117 / 100 = 1,17), exactement comme
+        // l'exige ImportCalculationOrchestrator (dérivation via DZD) — jamais via un enregistrement
+        // "croisé" EUR -> USD publié directement (c'est exactement cette confusion qui a provoqué
+        // l'énoncé erroné "16,69 € = 2 228,45 $").
         var rates = new[]
         {
-            EurToDzd,
             new ExchangeRateRecord
             {
-                CurrencyCode = "EUR", QuoteCurrencyCode = "USD", RateToDzd = 1.17m, QuotityUnit = 1,
-                ValidFrom = new DateOnly(2026, 1, 1), RateType = "COMMERCIAL_AUTORISATION", SourceName = "Test"
+                CurrencyCode = "EUR", QuoteCurrencyCode = "DZD", RateToDzd = 117m, QuotityUnit = 1,
+                ValidFrom = new DateOnly(2026, 1, 1), RateType = "OFFICIEL_DOUANE_ALCES", SourceName = "Test"
+            },
+            new ExchangeRateRecord
+            {
+                CurrencyCode = "USD", QuoteCurrencyCode = "DZD", RateToDzd = 100m, QuotityUnit = 1,
+                ValidFrom = new DateOnly(2026, 1, 1), RateType = "OFFICIEL_DOUANE_ALCES", SourceName = "Test"
             }
         };
 
@@ -385,5 +395,53 @@ public sealed class FeeFlagsAndCurrencyTests
         Assert.Equal(
             Math.Round(line.AuthorizationConversion.AuthorizationUnitPrice * 200m, 2, MidpointRounding.AwayFromZero),
             line.AuthorizationConversion.AuthorizationTotalAmount);
+    }
+
+    // --------------------------------------------------------------------------------------
+    // Correction 2026-10-02 (demande utilisateur — bug réel signalé : "16,69 € interprétés comme
+    // 2 228,45 $ au lieu de ≈ 18,89 $"). Reproduit l'exemple exact de l'utilisateur avec les DEUX taux
+    // réglementaires DZD publiés séparément (EUR → DZD = 150,7166 ; USD → DZD = 133,1500, valeurs
+    // Banque d'Algérie réalistes) — JAMAIS un taux croisé direct EUR → USD saisi ou publié. Garde-fou
+    // explicite contre toute régression qui réintroduirait l'ancien champ "taux manuel (1 devise facture
+    // = X devise autorisation)".
+    // --------------------------------------------------------------------------------------
+    [Fact]
+    public void AuthorizationConversion_UserReportedBug_Eur150_7166_Usd133_15_Produces18_89Usd_Not2228_45()
+    {
+        var rates = new[]
+        {
+            new ExchangeRateRecord
+            {
+                CurrencyCode = "EUR", QuoteCurrencyCode = "DZD", RateToDzd = 150.7166m, QuotityUnit = 1,
+                ValidFrom = new DateOnly(2026, 1, 1), RateType = "OFFICIEL_DOUANE_ALCES", SourceName = "Banque d'Algérie"
+            },
+            new ExchangeRateRecord
+            {
+                CurrencyCode = "USD", QuoteCurrencyCode = "DZD", RateToDzd = 133.1500m, QuotityUnit = 1,
+                ValidFrom = new DateOnly(2026, 1, 1), RateType = "OFFICIEL_DOUANE_ALCES", SourceName = "Banque d'Algérie"
+            }
+        };
+
+        var operation = BuildOperation("EUR", IncotermCode.FOB,
+            new[] { SingleLine(1m, 16.69m, "EUR") }, Array.Empty<ImportFee>());
+        operation.AuthorizationCurrencyCode = "USD";
+
+        var summary = BuildOrchestrator(rates).ExecuteCalculation(BuildCompany(), operation);
+        var line = summary.LineResults.Single();
+
+        Assert.NotNull(line.AuthorizationConversion);
+        // Formule obligatoire : Montant_USD = Montant_EUR × (EUR → DZD) / (USD → DZD) = 16,69 × 150,7166 / 133,15
+        // ≈ 18,89 $ — JAMAIS Montant_EUR × (USD → DZD) et JAMAIS un taux croisé saisi directement.
+        Assert.Equal(18.89m, line.AuthorizationConversion!.AuthorizationTotalAmount);
+        Assert.Equal(18.89m, line.AuthorizationConversion.AuthorizationUnitPrice);
+
+        // Garde-fou explicite : l'ancien bug produisait 2 228,45 $ (en traitant 133,15 comme un taux
+        // EUR → USD direct au lieu du taux USD → DZD). Ce résultat erroné ne doit plus jamais apparaître.
+        Assert.NotEqual(2_228.45m, line.AuthorizationConversion.AuthorizationTotalAmount);
+
+        Assert.NotNull(summary.CommercialAuthorizationConversion);
+        var conv = summary.CommercialAuthorizationConversion!;
+        Assert.False(conv.IsManualRate);
+        Assert.Equal(1.1319m, Math.Round(conv.EffectiveRate, 4, MidpointRounding.AwayFromZero));
     }
 }

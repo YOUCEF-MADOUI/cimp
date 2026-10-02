@@ -147,7 +147,7 @@ public sealed class ImportCostDbContext : DbContext
             b.HasIndex(op => new { op.CompanyId, op.ImportNumber }).IsUnique();
             b.Property(x => x.ManualExchangeRateOverride).HasPrecision(18, 6);
             b.Property(x => x.AuthorizationCurrencyCode).IsRequired().HasMaxLength(8).HasDefaultValue("USD");
-            b.Property(x => x.ManualAuthorizationExchangeRateOverride).HasPrecision(18, 6);
+            b.Property(x => x.ManualAuthorizationCurrencyRateToDzd).HasPrecision(18, 6);
             b.Property(x => x.ManualPrctRatePercent).HasPrecision(9, 4);
             b.Property(x => x.ManualTcsRatePercent).HasPrecision(9, 4);
             // Revue du 2026-10-02 (correction urgente) : taux de taxes PAR DÉFAUT de l'importation.

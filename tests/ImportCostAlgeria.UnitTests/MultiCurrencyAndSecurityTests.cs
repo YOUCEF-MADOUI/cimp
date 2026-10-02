@@ -586,17 +586,25 @@ public sealed class MultiCurrencyAndSecurityTests
     public void LineAndInvoiceTotals_ShouldStayConsistentWithQuantityAcrossOriginalAndConvertedCurrencies()
     {
         var company = BuildCompany();
+
+        // Correction 2026-10-02 (demande utilisateur — "ne jamais publier/saisir un taux croisé EUR -> USD
+        // direct") : la devise d'autorisation (USD) est désormais cotée EN DZD, exactement comme la devise
+        // facture (EUR) ci-dessous — jamais via un enregistrement "croisé" EUR -> USD publié directement
+        // (voir ImportCalculationOrchestrator.ResolveCrossRate, remarque "cette confusion a permis la
+        // publication accidentelle ... 16,69 € = 2 228,45 $").
+        const decimal eurToDzd = 146.50m;
+        const decimal usdToDzd = 135.6481m;
         var rates = new[]
         {
             new ExchangeRateRecord
             {
-                CurrencyCode = "EUR", QuoteCurrencyCode = "DZD", RateToDzd = 146.50m, QuotityUnit = 1,
+                CurrencyCode = "EUR", QuoteCurrencyCode = "DZD", RateToDzd = eurToDzd, QuotityUnit = 1,
                 ValidFrom = new DateOnly(2026, 1, 1), RateType = "OFFICIEL_DOUANE_ALCES", SourceName = "Test"
             },
             new ExchangeRateRecord
             {
-                CurrencyCode = "EUR", QuoteCurrencyCode = "USD", RateToDzd = 1.08m, QuotityUnit = 1,
-                ValidFrom = new DateOnly(2026, 1, 1), RateType = "COMMERCIAL_AUTORISATION", SourceName = "Test"
+                CurrencyCode = "USD", QuoteCurrencyCode = "DZD", RateToDzd = usdToDzd, QuotityUnit = 1,
+                ValidFrom = new DateOnly(2026, 1, 1), RateType = "OFFICIEL_DOUANE_ALCES", SourceName = "Test"
             }
         };
         var rules = new[]
@@ -646,7 +654,9 @@ public sealed class MultiCurrencyAndSecurityTests
         decimal expectedOriginalTotal = CurrencyCalculator.RoundDzd(quantity * unitPriceEur);
         Assert.Equal(expectedOriginalTotal, line.EconomicOutcome.PurchaseValueCurrency);
 
-        decimal expectedUsdTotal = CurrencyCalculator.RoundDzd(expectedOriginalTotal * 1.08m);
+        // Formule obligatoire (jamais inversée) : Montant_USD = Montant_EUR × (EUR → DZD) / (USD → DZD).
+        decimal expectedCrossRate = eurToDzd / usdToDzd;
+        decimal expectedUsdTotal = CurrencyCalculator.RoundDzd(expectedOriginalTotal * expectedCrossRate);
         Assert.Equal(expectedUsdTotal, line.AuthorizationConversion!.AuthorizationTotalAmount);
 
         decimal expectedUsdUnit = Math.Round(expectedUsdTotal / quantity, 4, MidpointRounding.AwayFromZero);
@@ -911,18 +921,21 @@ public sealed class MultiCurrencyAndSecurityTests
     {
         // Exigence explicite de la revue : Qté = 100, PU = 50 EUR, taux = 1,17
         // -> Total EUR = 5 000, PU USD = 58,50, Total USD = 5 850.
+        // Correction 2026-10-02 (demande utilisateur — "ne jamais publier/saisir un taux croisé EUR -> USD
+        // direct") : EUR et USD sont ici cotés CHACUN séparément en DZD (146,25 / 125 = 1,17 exactement),
+        // jamais via un enregistrement "croisé" EUR -> USD publié directement.
         var company = BuildCompany();
         var rates = new[]
         {
             new ExchangeRateRecord
             {
-                CurrencyCode = "EUR", QuoteCurrencyCode = "DZD", RateToDzd = 146.50m, QuotityUnit = 1,
+                CurrencyCode = "EUR", QuoteCurrencyCode = "DZD", RateToDzd = 146.25m, QuotityUnit = 1,
                 ValidFrom = new DateOnly(2026, 1, 1), RateType = "OFFICIEL_DOUANE_ALCES", SourceName = "Test DZD"
             },
             new ExchangeRateRecord
             {
-                CurrencyCode = "EUR", QuoteCurrencyCode = "USD", RateToDzd = 1.17m, QuotityUnit = 1,
-                ValidFrom = new DateOnly(2026, 1, 1), RateType = "COMMERCIAL_AUTORISATION", SourceName = "Test USD"
+                CurrencyCode = "USD", QuoteCurrencyCode = "DZD", RateToDzd = 125m, QuotityUnit = 1,
+                ValidFrom = new DateOnly(2026, 1, 1), RateType = "OFFICIEL_DOUANE_ALCES", SourceName = "Test DZD"
             }
         };
         var rules = new[]
