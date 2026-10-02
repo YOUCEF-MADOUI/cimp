@@ -36,6 +36,9 @@ public sealed class ImportDetailViewModel : ObservableObject
     private ImportationsViewModel? _parentList;
 
     private ImportCalculationSummary? _lastSummary;
+    /// <summary>Empreinte des données d'entrée correspondant au dernier calcul AFFICHÉ (fraîchement exécuté ou rechargé depuis un instantané sauvegardé) — voir <see cref="IsCalculationOutdated"/>.</summary>
+    private string? _lastDisplayedInputHash;
+    private bool _isCalculationOutdated;
     private bool _hasBlockingAnomalies;
     private decimal _totalCoutRevientDzd;
     private decimal _totalValeurDouaneDzd;
@@ -53,6 +56,7 @@ public sealed class ImportDetailViewModel : ObservableObject
     private decimal _totalDedouanementDzd;
     private string _customsValueDisplayCurrency = "DA";
     private decimal? _customsValueDisplayAmount;
+    private string? _customsValueDisplayErrorFr;
     private bool _hasAnyAiProposedHs;
     private bool _hasAnyManualVatRate;
     private bool _hasAnyVatExemptionReason;
@@ -98,6 +102,10 @@ public sealed class ImportDetailViewModel : ObservableObject
         {
             UndoCommand.RaiseCanExecuteChanged();
             RedoCommand.RaiseCanExecuteChanged();
+            // Étape 2 : toute modification (y compris un Annuler/Rétablir, qui change aussi les données
+            // affichées) peut rendre le dernier calcul sauvegardé obsolète — recalculé à partir de
+            // l'empreinte réelle des données, jamais un simple indicateur "a été modifié une fois".
+            RecomputeOutdatedStatus();
         };
 
         BackCommand = new RelayCommand(() => _parentList?.NavigateBackToList?.Invoke());
@@ -105,6 +113,7 @@ public sealed class ImportDetailViewModel : ObservableObject
         RemoveLineCommand = new RelayCommand<ImportLineRowViewModel>(RemoveLine);
         ImportExcelCommand = new RelayCommand(OpenExcelWizard);
         CalculateCommand = new RelayCommand(Calculate);
+        SaveCommand = new RelayCommand(SaveInputsOnly);
         ExportExcelCommand = new RelayCommand(ExportExcel);
         ExportPdfCommand = new RelayCommand(ExportPdf);
         ConfirmHsCommand = new RelayCommand<ImportLineRowViewModel>(OpenHsConfirmDialog);
@@ -141,6 +150,8 @@ public sealed class ImportDetailViewModel : ObservableObject
         NotificationBannerFr = string.Empty;
         ShowAnomalyDetails = false;
         _lastSummary = null;
+        _lastDisplayedInputHash = null;
+        IsCalculationOutdated = false;
         HasBlockingAnomalies = false;
         IsProvisionalCalculation = false;
         ProvisionalMessageFr = string.Empty;
@@ -150,6 +161,89 @@ public sealed class ImportDetailViewModel : ObservableObject
         RefreshIncotermGuidance();
         RecomputeDynamicColumnVisibility();
         RefreshCustomsValueDisplayAmount();
+
+        LoadLastCalculationOrRecalculate();
+    }
+
+    /// <summary>
+    /// Correction 2026-10-02 (Étape 2 — "Persistance des calculs après fermeture de CIMP") : au chargement
+    /// d'une importation, réaffiche IMMÉDIATEMENT le dernier résultat de calcul réellement sauvegardé
+    /// (<see cref="CalculationSnapshotRepository"/>, déjà alimenté par <see cref="Calculate"/> à chaque
+    /// exécution) plutôt que de tout remettre à zéro en attendant un nouveau clic sur "Exécuter le calcul
+    /// complet". Robustesse (demande explicite) :
+    ///   - aucun instantané sauvegardé mais des articles déjà saisis -&gt; recalcule automatiquement (et
+    ///     sauvegarde le résultat), sans attendre une action de l'utilisateur ;
+    ///   - un instantané valide existe -&gt; il est réaffiché tel quel (jamais recalculé inutilement), et
+    ///     marqué "à recalculer" (<see cref="IsCalculationOutdated"/>) uniquement si les données saisies ont
+    ///     changé depuis ce calcul (comparaison d'empreinte, <see cref="CalculationInputHasher"/>).
+    /// </summary>
+    private void LoadLastCalculationOrRecalculate()
+    {
+        var latest = _snapshotRepository.GetLatest(_company.Id, _operation.Id);
+        if (latest == null)
+        {
+            if (Lines.Count > 0)
+                Calculate(showResultMessage: false);
+            return;
+        }
+
+        try
+        {
+            var summary = System.Text.Json.JsonSerializer.Deserialize<ImportCalculationSummary>(latest.CalculationResultJson);
+            if (summary == null) { Calculate(showResultMessage: false); return; }
+
+            ApplySummaryToUi(summary);
+            _lastDisplayedInputHash = latest.InputHash;
+            RecomputeOutdatedStatus();
+        }
+        catch (System.Text.Json.JsonException)
+        {
+            // Instantané illisible (ex: ancienne version du modèle) : on ne bloque jamais l'ouverture de
+            // l'importation pour autant — un recalcul complet reproduit un résultat exploitable.
+            Calculate(showResultMessage: false);
+        }
+    }
+
+    /// <summary>
+    /// Étape 2 : recalcule <see cref="IsCalculationOutdated"/> en comparant l'empreinte ACTUELLE des
+    /// données saisies à celle du dernier calcul affiché/sauvegardé — jamais un simple indicateur "a été
+    /// modifié une fois" (une modification suivie d'un retour à la valeur d'origine ne doit pas rester
+    /// marquée comme obsolète indéfiniment).
+    /// </summary>
+    private void RecomputeOutdatedStatus()
+    {
+        if (_operation == null || _lastDisplayedInputHash == null)
+        {
+            IsCalculationOutdated = false;
+            return;
+        }
+
+        _operation.Lines.Clear();
+        _operation.Lines.AddRange(Lines.Select(r => r.Line));
+        _operation.Fees.Clear();
+        _operation.Fees.AddRange(Fees.Select(f => f.Fee));
+
+        string currentHash = CalculationInputHasher.ComputeHash(_company, _operation);
+        IsCalculationOutdated = !string.Equals(currentHash, _lastDisplayedInputHash, StringComparison.Ordinal);
+    }
+
+    /// <summary>Section 18 (menu Fichier "Enregistrer") : sauvegarde les données saisies sans recalculer.</summary>
+    private void SaveInputsOnly()
+    {
+        try
+        {
+            _session.RequireNotConsultation("enregistrer une importation");
+            _operation.Lines.Clear();
+            _operation.Lines.AddRange(Lines.Select(r => r.Line));
+            _operation.Fees.Clear();
+            _operation.Fees.AddRange(Fees.Select(f => f.Fee));
+            _operationRepository.SaveOperation(_operation);
+            MessageBox.Show("Importation enregistrée.", "CIMP", MessageBoxButton.OK, MessageBoxImage.Information);
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show(ex.Message, "CIMP — Action refusée", MessageBoxButton.OK, MessageBoxImage.Error);
+        }
     }
 
     public string HeaderLabel { get => _headerLabel; private set => SetField(ref _headerLabel, value); }
@@ -195,6 +289,16 @@ public sealed class ImportDetailViewModel : ObservableObject
     }
 
     public bool HasBlockingAnomalies { get => _hasBlockingAnomalies; private set => SetField(ref _hasBlockingAnomalies, value); }
+
+    /// <summary>
+    /// Correction 2026-10-02 (Étape 2 — "Persistance des calculs après fermeture de CIMP") : vrai lorsque
+    /// les données saisies (quantités, prix, devises, taux manuels, frais, méthodes de répartition...) ont
+    /// changé depuis le dernier calcul affiché/sauvegardé — les totaux ci-dessous restent affichés (jamais
+    /// remis à zéro) mais ne doivent plus être considérés comme à jour tant qu'un nouveau calcul n'a pas
+    /// été exécuté. Recalculé à chaque modification (<see cref="UndoRedoManager.StateChanged"/>) en
+    /// comparant l'empreinte courante des données à <see cref="_lastDisplayedInputHash"/>.
+    /// </summary>
+    public bool IsCalculationOutdated { get => _isCalculationOutdated; private set => SetField(ref _isCalculationOutdated, value); }
     public decimal TotalCoutRevientDzd { get => _totalCoutRevientDzd; private set => SetField(ref _totalCoutRevientDzd, value); }
     public decimal TotalValeurDouaneDzd { get => _totalValeurDouaneDzd; private set => SetField(ref _totalValeurDouaneDzd, value); }
     public decimal TotalDroitsDouaneDzd { get => _totalDroitsDouaneDzd; private set => SetField(ref _totalDroitsDouaneDzd, value); }
@@ -241,8 +345,16 @@ public sealed class ImportDetailViewModel : ObservableObject
         set { if (SetField(ref _customsValueDisplayCurrency, value)) RefreshCustomsValueDisplayAmount(); }
     }
 
-    /// <summary>Valeur en douane convertie (affichage uniquement) dans <see cref="CustomsValueDisplayCurrency"/> — null si aucun taux n'est disponible pour la conversion demandée.</summary>
+    /// <summary>Valeur en douane convertie (affichage uniquement) dans <see cref="CustomsValueDisplayCurrency"/> — null si aucun taux n'est disponible pour la conversion demandée (voir <see cref="CustomsValueDisplayErrorFr"/> pour le message explicite à afficher à la place d'un simple "—").</summary>
     public decimal? CustomsValueDisplayAmount { get => _customsValueDisplayAmount; private set => SetField(ref _customsValueDisplayAmount, value); }
+
+    /// <summary>
+    /// Section 7 (correction 2026-10-02 — "ne jamais afficher simplement '—' sans explication") : message
+    /// expliquant pourquoi <see cref="CustomsValueDisplayAmount"/> est indisponible (ex : aucun taux
+    /// réglementaire publié pour la devise demandée à la date de l'importation). Vide lorsque la
+    /// conversion a réussi.
+    /// </summary>
+    public string CustomsValueDisplayErrorFr { get => _customsValueDisplayErrorFr ?? string.Empty; private set => SetField(ref _customsValueDisplayErrorFr, value); }
 
     /// <summary>Code ISO correspondant à <see cref="CustomsValueDisplayCurrency"/> ("DA" -&gt; "DZD"), pour résoudre le taux de change.</summary>
     private string CustomsValueDisplayCurrencyIso => _customsValueDisplayCurrency == "DA" ? "DZD" : _customsValueDisplayCurrency;
@@ -284,64 +396,40 @@ public sealed class ImportDetailViewModel : ObservableObject
     /// </summary>
     private void RefreshCustomsValueDisplayAmount()
     {
-        if (_operation == null) { CustomsValueDisplayAmount = null; return; }
+        if (_operation == null) { CustomsValueDisplayAmount = null; CustomsValueDisplayErrorFr = string.Empty; return; }
 
         if (CustomsValueDisplayCurrencyIso == "DZD")
         {
             CustomsValueDisplayAmount = TotalValeurDouaneDzd;
+            CustomsValueDisplayErrorFr = string.Empty;
             return;
         }
 
-        var provider = _engineFactory.CreateExchangeRateProvider();
-        decimal? rateToDzd = string.Equals(CustomsValueDisplayCurrencyIso, _operation.MainCurrencyCode, StringComparison.OrdinalIgnoreCase)
-                              && _operation.ManualExchangeRateOverride.HasValue
-            ? _operation.ManualExchangeRateOverride
-            : provider.GetRegulatoryRate(CustomsValueDisplayCurrencyIso, _operation.ReferenceDate)?.RateToDzd;
-
-        if (rateToDzd is > 0m)
-        {
-            CustomsValueDisplayAmount = ProfitCalculator.ConvertDzdToDisplayCurrency(TotalValeurDouaneDzd, rateToDzd);
-            return;
-        }
-
-        // Revue du 2026-10-02 (demande utilisateur, Section 12 — "le sélecteur USD affiche '—' au lieu
-        // d'une valeur convertie") : CAUSE RACINE — aucun taux RÉGLEMENTAIRE officiel direct n'est publié
-        // pour la devise d'affichage demandée (ex : la facture est en EUR, aucun taux officiel USD->DZD
-        // n'a jamais été nécessaire/publié séparément pour le dédouanement). Puisqu'il s'agit ICI d'une
-        // simple CONVERSION D'AFFICHAGE (jamais la valeur réglementaire — TotalValeurDouaneDzd/CustomsValueDzd
-        // restent inchangés, voir commentaire de la propriété CustomsValueDisplayCurrency), on réutilise les
-        // services déjà existants (AUCUNE nouvelle formule) pour obtenir malgré tout une valeur utile :
-        // 1) Valeur en douane DZD -> devise principale de la facture, via le taux RÉGLEMENTAIRE déjà connu
-        //    (le même que celui utilisé pour le calcul douanier lui-même) ;
-        // 2) devise principale -> devise d'affichage demandée, via le taux COMMERCIAL cross-rate (le même
-        //    service que "PU Autorisation"/"Total Autorisation", Section 10/11 du plan multi-devises).
-        decimal? mainCurrencyRegulatoryRate = string.Equals(_operation.MainCurrencyCode, "DZD", StringComparison.OrdinalIgnoreCase)
-            ? 1m
-            : (_operation.ManualExchangeRateOverride is > 0m
-                ? _operation.ManualExchangeRateOverride
-                : provider.GetRegulatoryRate(_operation.MainCurrencyCode, _operation.ReferenceDate)?.RateToDzd);
-
-        if (mainCurrencyRegulatoryRate is not > 0m)
-        {
-            CustomsValueDisplayAmount = null;
-            return;
-        }
-
-        decimal amountInMainCurrency = TotalValeurDouaneDzd / mainCurrencyRegulatoryRate.Value;
-
-        if (string.Equals(_operation.MainCurrencyCode, CustomsValueDisplayCurrencyIso, StringComparison.OrdinalIgnoreCase))
-        {
-            CustomsValueDisplayAmount = Math.Round(amountInMainCurrency, 2, MidpointRounding.AwayFromZero);
-            return;
-        }
-
+        // Revue du 2026-10-02 (Section 7 — "Valeur en douane affichée en USD") : conversion D'AFFICHAGE
+        // UNIQUEMENT — la valeur réglementaire (TotalValeurDouaneDzd/CustomsValueDzd) n'est JAMAIS modifiée
+        // ici. Depuis la correction du Section 4 ("Corriger définitivement la conversion EUR/USD/DZD"),
+        // CurrencyConversionService.ResolveCrossRate sait désormais convertir directement DZD -> devise
+        // demandée (ex: USD) en divisant par le taux réglementaire officiel (1 USD = X DA), sans jamais
+        // multiplier ni passer par un taux croisé fragile — Section 7 : "Valeur_USD = Valeur_DZD / USD_DZD,
+        // jamais Valeur_DZD x taux USD".
         var commercialConversion = _engineFactory.CreateCommercialConversionService();
-        var (crossRate, _, _) = commercialConversion.ResolveCrossRate(
-            _operation.MainCurrencyCode, CustomsValueDisplayCurrencyIso, _operation.ReferenceDate, null);
+        var (crossRate, _, anomaly) = commercialConversion.ResolveCrossRate(
+            "DZD", CustomsValueDisplayCurrencyIso, _operation.ReferenceDate, null);
 
-        CustomsValueDisplayAmount = crossRate > 0m
-            ? Math.Round(amountInMainCurrency * crossRate, 2, MidpointRounding.AwayFromZero)
-            : null;
+        if (crossRate > 0m)
+        {
+            CustomsValueDisplayAmount = Math.Round(TotalValeurDouaneDzd * crossRate, 2, MidpointRounding.AwayFromZero);
+            CustomsValueDisplayErrorFr = string.Empty;
+            return;
+        }
+
+        // Section 7 : "Ne jamais afficher simplement '—' sans explication" — message explicite indiquant
+        // pourquoi la conversion est indisponible ; la valeur réglementaire en DZD reste, elle, toujours
+        // affichable séparément (TotalValeurDouaneDzd, jamais affectée par cet échec de conversion).
+        CustomsValueDisplayAmount = null;
+        CustomsValueDisplayErrorFr = anomaly != null
+            ? $"Conversion {CustomsValueDisplayCurrencyIso} indisponible : {anomaly.MessageFr}"
+            : $"Taux {CustomsValueDisplayCurrencyIso} indisponible pour la date de l'importation.";
     }
     public string ExchangeRateInfo { get => _exchangeRateInfo; private set => SetField(ref _exchangeRateInfo, value); }
     public string IncotermGuidance { get => _incotermGuidance; private set => SetField(ref _incotermGuidance, value); }
@@ -498,6 +586,12 @@ public sealed class ImportDetailViewModel : ObservableObject
     public RelayCommand<ImportLineRowViewModel> RemoveLineCommand { get; }
     public RelayCommand ImportExcelCommand { get; }
     public RelayCommand CalculateCommand { get; }
+    /// <summary>
+    /// Section 18 (menu Fichier "Enregistrer") : sauvegarde explicite des données SAISIES (articles, frais,
+    /// taux, Incoterm...) sans forcer de recalcul — réutilise le même <see cref="ImportOperationRepository"/>
+    /// que le bouton "Enregistrer" de l'écran "Importations" (aucune logique dupliquée).
+    /// </summary>
+    public RelayCommand SaveCommand { get; private set; } = null!;
     public RelayCommand ExportExcelCommand { get; }
     public RelayCommand ExportPdfCommand { get; }
     public RelayCommand<ImportLineRowViewModel> ConfirmHsCommand { get; }
@@ -619,8 +713,18 @@ public sealed class ImportDetailViewModel : ObservableObject
                 : template.DefaultCustomsTreatment,
             IncludeInCostOfGoods = template.DefaultIncludeInCostOfGoods
         };
-        Fees.Add(new FeeRowViewModel(fee, UndoRedo));
+        var row = new FeeRowViewModel(fee, UndoRedo);
+        Fees.Add(row);
+
+        // Demande utilisateur (Section 8 — "après Ajouter ce frais, le curseur doit se positionner
+        // automatiquement dans Montant") : ImportDetailView s'abonne à cet événement pour placer le focus
+        // clavier et démarrer l'édition de la cellule "Montant" de la ligne nouvellement ajoutée, sans que
+        // ce ViewModel ait besoin de connaître quoi que ce soit sur le DataGrid (reste MVVM).
+        FeeAdded?.Invoke(row);
     }
+
+    /// <summary>Voir <see cref="AddFeeFromTemplate"/> (Section 8 de la demande utilisateur).</summary>
+    public event Action<FeeRowViewModel>? FeeAdded;
 
     private void RemoveFee(FeeRowViewModel? fee)
     {
@@ -703,7 +807,110 @@ public sealed class ImportDetailViewModel : ObservableObject
         window.ShowDialog();
     }
 
-    private void Calculate()
+    /// <summary>
+    /// Projection PURE d'un <see cref="ImportCalculationSummary"/> (fraîchement calculé OU rechargé depuis
+    /// un instantané sauvegardé, <see cref="LoadLastCalculationOrRecalculate"/>) vers les propriétés
+    /// affichées de cet écran — aucun accès base de données ni audit ici, pour rester réutilisable à
+    /// l'identique dans les deux cas (Étape 2 — "Persistance des calculs après fermeture de CIMP").
+    /// </summary>
+    private void ApplySummaryToUi(ImportCalculationSummary summary)
+    {
+        _lastSummary = summary;
+
+        // Revue du 2026-10-02 (REFONTE INTERFACE, Section 10/18) : identifiants des frais RPS (déplacé
+        // avant la boucle ci-dessous pour alimenter la nouvelle colonne RPS par article, SANS jamais
+        // dupliquer le montant total — chaque ligne ne reçoit que sa PART déjà répartie par le moteur).
+        var rpsFeeIds = _operation.Fees
+            .Where(f => string.Equals(f.FeeCategoryCode, "RPS", StringComparison.OrdinalIgnoreCase))
+            .Select(f => f.Id)
+            .ToHashSet();
+
+        foreach (var row in Lines)
+        {
+            row.Result = summary.LineResults.FirstOrDefault(l => l.LineNumber == row.Line.LineNumber);
+            row.AnomaliesForLine = summary.Anomalies.Where(a => a.LineNumber == row.Line.LineNumber).ToList();
+            row.RpsAllocatedDzd = row.Result?.FeeAllocations
+                .Where(a => rpsFeeIds.Contains(a.FeeId))
+                .Sum(a => a.AllocatedAmountDzd);
+            row.RaiseEtatChanged();
+        }
+
+        Anomalies.Clear();
+        foreach (var a in summary.Anomalies.OrderByDescending(a => a.Severity))
+            Anomalies.Add(a);
+
+        // Section 7 (menu "Notifications") : résumé regroupé par type — niveau IMPORTATION, jamais
+        // répété par article (le détail complet par article reste disponible via Anomalies ci-dessus,
+        // affiché uniquement si l'utilisateur clique sur "Voir les détails").
+        AnomalyGroups.Clear();
+        foreach (var group in AnomalyGroupingService.GroupByCode(summary.Anomalies))
+            AnomalyGroups.Add(group);
+
+        NotificationBannerFr = summary.Anomalies.Count == 0
+            ? "✓ Aucune anomalie détectée pour cette importation."
+            : summary.HasBlockingAnomalies
+                ? $"🚫 Vérification requise — Cette importation contient {AnomalyGroups.Count} type(s) d'anomalies, dont au moins une BLOQUANTE : le coût de revient ne peut pas être considéré comme définitif."
+                : $"⚠ Vérification requise — Cette importation contient des données ou taux qui nécessitent une vérification avant validation définitive ({AnomalyGroups.Count} type(s) d'éléments à vérifier).";
+
+        HasBlockingAnomalies = summary.HasBlockingAnomalies;
+        TotalCoutRevientDzd = summary.TotalRealCostOfGoodsDzd;
+        TotalValeurDouaneDzd = summary.TotalCustomsValueDzd;
+        TotalDroitsDouaneDzd = summary.TotalCustomsDutyDzd;
+        TotalTvaDzd = summary.TotalImportVatDzd;
+        TotalAutresTaxesDzd = summary.TotalAdditionalTaxesDzd;
+        TotalFraisDzd = summary.TotalImportFeesDzd;
+
+        // Section 14 : détail de chaque taxe additionnelle séparément (plus un seul total agrégé).
+        var allAppliedTaxes = summary.LineResults.SelectMany(l => l.CustomsOutcome.AdditionalTaxes).ToList();
+        decimal SumTax(string code) => allAppliedTaxes
+            .Where(t => string.Equals(t.TaxCode, code, StringComparison.OrdinalIgnoreCase))
+            .Sum(t => t.TaxAmountDzd);
+        TotalCsDzd = SumTax("CS");
+        TotalPrctDzd = SumTax("PRCT");
+        TotalTcsDzd = SumTax("TCS");
+        TotalDapsDzd = SumTax("DAPS");
+
+        TotalRpsDzd = summary.LineResults
+            .SelectMany(l => l.FeeAllocations)
+            .Where(a => rpsFeeIds.Contains(a.FeeId))
+            .Sum(a => a.AllocatedAmountDzd);
+
+        // Section 9 : TOTAL DÉDOUANEMENT = DD + CS + TVA + PRCT + TCS + RPS (jamais les frais
+        // commerciaux/importation, jamais la DAPS — formule explicite de la demande).
+        TotalDedouanementDzd = TotalDroitsDouaneDzd + TotalCsDzd + TotalTvaDzd + TotalPrctDzd + TotalTcsDzd + TotalRpsDzd;
+
+        RecomputeDynamicColumnVisibility();
+        RefreshCustomsValueDisplayAmount();
+
+        // Section 15 : distinguer un calcul réellement bloqué (bandeau rouge, inchangé) d'un calcul
+        // PROVISOIRE (bandeau orange) qui s'est exécuté avec succès mais en utilisant au moins un taux
+        // PAR DÉFAUT de l'importation ou une taxe laissée NON DÉTERMINÉE (jamais un blocage — Section
+        // 1 de la correction du 2026-10-02 : l'absence de RegulatoryRule ne bloque plus le calcul).
+        bool usedDefaultOrUndeterminedRates = summary.Anomalies.Any(a =>
+            a.AnomalyCode.EndsWith("_DEFAULT_RATE_USED", StringComparison.OrdinalIgnoreCase) ||
+            a.AnomalyCode.EndsWith("_RATE_NOT_DETERMINED", StringComparison.OrdinalIgnoreCase) ||
+            a.AnomalyCode is "REGULATORY_RULE_NOT_FOUND" or "MISSING_HS_CODE");
+        IsProvisionalCalculation = !summary.HasBlockingAnomalies && usedDefaultOrUndeterminedRates;
+        ProvisionalMessageFr = IsProvisionalCalculation
+            ? "⚠ Calcul provisoire : certaines règles réglementaires n'ont pas été trouvées. Des taux par défaut de l'importation ont été utilisés (ou certaines taxes restent non déterminées). Vérifiez les données avant de considérer le résultat comme définitif."
+            : string.Empty;
+
+        RefreshExchangeRateInfo();
+        RefreshAuthorizationExchangeRateInfo();
+
+        var commercialConversion = summary.CommercialAuthorizationConversion;
+        AuthorizationConversionSummary = commercialConversion == null
+            ? string.Empty
+            : $"Montant facture : {commercialConversion.OriginalTotalAmount:N2} {commercialConversion.OriginalCurrencyCode}  →  Montant autorisation : {commercialConversion.AuthorizationTotalAmount:N2} {commercialConversion.AuthorizationCurrencyCode} (taux {commercialConversion.EffectiveRate:F4}, {commercialConversion.RateTypeLabelFr})";
+    }
+
+    /// <param name="showResultMessage">
+    /// Faux lors d'un recalcul AUTOMATIQUE déclenché par <see cref="LoadLastCalculationOrRecalculate"/>
+    /// (ouverture d'une importation jamais encore calculée) — aucune boîte de dialogue ne doit alors
+    /// interrompre le simple chargement de l'écran ; vrai pour un clic explicite sur "Exécuter le calcul
+    /// complet".
+    /// </param>
+    private void Calculate(bool showResultMessage = true)
     {
         try
         {
@@ -716,86 +923,13 @@ public sealed class ImportDetailViewModel : ObservableObject
 
             var orchestrator = _engineFactory.CreateOrchestrator();
             var summary = orchestrator.ExecuteCalculation(_company, _operation);
-            _lastSummary = summary;
 
-            // Revue du 2026-10-02 (REFONTE INTERFACE, Section 10/18) : identifiants des frais RPS (déplacé
-            // avant la boucle ci-dessous pour alimenter la nouvelle colonne RPS par article, SANS jamais
-            // dupliquer le montant total — chaque ligne ne reçoit que sa PART déjà répartie par le moteur).
-            var rpsFeeIds = _operation.Fees
-                .Where(f => string.Equals(f.FeeCategoryCode, "RPS", StringComparison.OrdinalIgnoreCase))
-                .Select(f => f.Id)
-                .ToHashSet();
+            ApplySummaryToUi(summary);
 
-            foreach (var row in Lines)
-            {
-                row.Result = summary.LineResults.FirstOrDefault(l => l.LineNumber == row.Line.LineNumber);
-                row.AnomaliesForLine = summary.Anomalies.Where(a => a.LineNumber == row.Line.LineNumber).ToList();
-                row.RpsAllocatedDzd = row.Result?.FeeAllocations
-                    .Where(a => rpsFeeIds.Contains(a.FeeId))
-                    .Sum(a => a.AllocatedAmountDzd);
-                row.RaiseEtatChanged();
-            }
-
-            Anomalies.Clear();
-            foreach (var a in summary.Anomalies.OrderByDescending(a => a.Severity))
-                Anomalies.Add(a);
-
-            // Section 7 (menu "Notifications") : résumé regroupé par type — niveau IMPORTATION, jamais
-            // répété par article (le détail complet par article reste disponible via Anomalies ci-dessus,
-            // affiché uniquement si l'utilisateur clique sur "Voir les détails").
-            AnomalyGroups.Clear();
-            foreach (var group in AnomalyGroupingService.GroupByCode(summary.Anomalies))
-                AnomalyGroups.Add(group);
-
-            NotificationBannerFr = summary.Anomalies.Count == 0
-                ? "✓ Aucune anomalie détectée pour cette importation."
-                : summary.HasBlockingAnomalies
-                    ? $"🚫 Vérification requise — Cette importation contient {AnomalyGroups.Count} type(s) d'anomalies, dont au moins une BLOQUANTE : le coût de revient ne peut pas être considéré comme définitif."
-                    : $"⚠ Vérification requise — Cette importation contient des données ou taux qui nécessitent une vérification avant validation définitive ({AnomalyGroups.Count} type(s) d'éléments à vérifier).";
-
-            HasBlockingAnomalies = summary.HasBlockingAnomalies;
-            TotalCoutRevientDzd = summary.TotalRealCostOfGoodsDzd;
-            TotalValeurDouaneDzd = summary.TotalCustomsValueDzd;
-            TotalDroitsDouaneDzd = summary.TotalCustomsDutyDzd;
-            TotalTvaDzd = summary.TotalImportVatDzd;
-            TotalAutresTaxesDzd = summary.TotalAdditionalTaxesDzd;
-            TotalFraisDzd = summary.TotalImportFeesDzd;
-
-            // Section 14 : détail de chaque taxe additionnelle séparément (plus un seul total agrégé).
-            var allAppliedTaxes = summary.LineResults.SelectMany(l => l.CustomsOutcome.AdditionalTaxes).ToList();
-            decimal SumTax(string code) => allAppliedTaxes
-                .Where(t => string.Equals(t.TaxCode, code, StringComparison.OrdinalIgnoreCase))
-                .Sum(t => t.TaxAmountDzd);
-            TotalCsDzd = SumTax("CS");
-            TotalPrctDzd = SumTax("PRCT");
-            TotalTcsDzd = SumTax("TCS");
-            TotalDapsDzd = SumTax("DAPS");
-
-            TotalRpsDzd = summary.LineResults
-                .SelectMany(l => l.FeeAllocations)
-                .Where(a => rpsFeeIds.Contains(a.FeeId))
-                .Sum(a => a.AllocatedAmountDzd);
-
-            // Section 9 : TOTAL DÉDOUANEMENT = DD + CS + TVA + PRCT + TCS + RPS (jamais les frais
-            // commerciaux/importation, jamais la DAPS — formule explicite de la demande).
-            TotalDedouanementDzd = TotalDroitsDouaneDzd + TotalCsDzd + TotalTvaDzd + TotalPrctDzd + TotalTcsDzd + TotalRpsDzd;
-
-            RecomputeDynamicColumnVisibility();
-            RefreshCustomsValueDisplayAmount();
-
-            // Section 15 : distinguer un calcul réellement bloqué (bandeau rouge, inchangé) d'un calcul
-            // PROVISOIRE (bandeau orange) qui s'est exécuté avec succès mais en utilisant au moins un taux
-            // PAR DÉFAUT de l'importation ou une taxe laissée NON DÉTERMINÉE (jamais un blocage — Section
-            // 1 de la correction du 2026-10-02 : l'absence de RegulatoryRule ne bloque plus le calcul).
-            bool usedDefaultOrUndeterminedRates = summary.Anomalies.Any(a =>
-                a.AnomalyCode.EndsWith("_DEFAULT_RATE_USED", StringComparison.OrdinalIgnoreCase) ||
-                a.AnomalyCode.EndsWith("_RATE_NOT_DETERMINED", StringComparison.OrdinalIgnoreCase) ||
-                a.AnomalyCode is "REGULATORY_RULE_NOT_FOUND" or "MISSING_HS_CODE");
-            IsProvisionalCalculation = !summary.HasBlockingAnomalies && usedDefaultOrUndeterminedRates;
-            ProvisionalMessageFr = IsProvisionalCalculation
-                ? "⚠ Calcul provisoire : certaines règles réglementaires n'ont pas été trouvées. Des taux par défaut de l'importation ont été utilisés (ou certaines taxes restent non déterminées). Vérifiez les données avant de considérer le résultat comme définitif."
-                : string.Empty;
-
+            // Étape 2 ("Persistance des calculs après fermeture de CIMP") : sauvegarde IMMÉDIATE des
+            // données saisies ET du résultat calculé, avec l'empreinte des données qui l'a produit — c'est
+            // cette sauvegarde qui permet de retrouver exactement cet état après fermeture/redémarrage de
+            // CIMP, sans avoir à ré-exécuter le calcul.
             _operationRepository.SaveOperation(_operation);
 
             string versionLabel = summary.LineResults
@@ -804,7 +938,10 @@ public sealed class ImportDetailViewModel : ObservableObject
                 .Distinct()
                 .First();
 
-            _snapshotRepository.SaveSnapshot(_company.Id, _session.CurrentUser?.Id ?? Guid.Empty, versionLabel, summary);
+            string inputHash = CalculationInputHasher.ComputeHash(_company, _operation);
+            _snapshotRepository.SaveSnapshot(_company.Id, _session.CurrentUser?.Id ?? Guid.Empty, versionLabel, summary, inputHash);
+            _lastDisplayedInputHash = inputHash;
+            IsCalculationOutdated = false;
 
             // Section 22 de la correction du 2026-10-02 : trace explicitement dans l'audit chaque taux PAR
             // DÉFAUT de l'importation réellement utilisé pour ce calcul (jamais une simple absence silencieuse).
@@ -828,13 +965,8 @@ public sealed class ImportDetailViewModel : ObservableObject
                 importOperationId: _operation.Id,
                 regulatoryVersionCode: IsProvisionalCalculation ? "DEFAULT_IMPORT" : null);
 
-            RefreshExchangeRateInfo();
-            RefreshAuthorizationExchangeRateInfo();
-
-            var commercialConversion = summary.CommercialAuthorizationConversion;
-            AuthorizationConversionSummary = commercialConversion == null
-                ? string.Empty
-                : $"Montant facture : {commercialConversion.OriginalTotalAmount:N2} {commercialConversion.OriginalCurrencyCode}  →  Montant autorisation : {commercialConversion.AuthorizationTotalAmount:N2} {commercialConversion.AuthorizationCurrencyCode} (taux {commercialConversion.EffectiveRate:F4}, {commercialConversion.RateTypeLabelFr})";
+            if (!showResultMessage)
+                return;
 
             MessageBox.Show(
                 summary.HasBlockingAnomalies
@@ -849,7 +981,8 @@ public sealed class ImportDetailViewModel : ObservableObject
         }
         catch (Exception ex)
         {
-            MessageBox.Show(ex.Message, "CIMP — Action refusée", MessageBoxButton.OK, MessageBoxImage.Error);
+            if (showResultMessage)
+                MessageBox.Show(ex.Message, "CIMP — Action refusée", MessageBoxButton.OK, MessageBoxImage.Error);
         }
     }
 

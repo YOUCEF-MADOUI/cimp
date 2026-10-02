@@ -40,6 +40,10 @@
                 <MenuItem Header="Exporter en Excel..." Command="{Binding CurrentView.ExportExcelCommand}" />
                 <MenuItem Header="Exporter en PDF..." Command="{Binding CurrentView.ExportPdfCommand}" />
                 <Separator />
+                <!-- Demande utilisateur (Section 7 — connexion automatique) : point d'entrée explicite
+                     pour "Utiliser un autre compte" alors que CIMP se connecte normalement tout seul. -->
+                <MenuItem Header="Changer de compte..." Command="{Binding SwitchAccountCommand}" />
+                <Separator />
                 <MenuItem Header="Quitter" Command="{Binding QuitCommand}" />
             </MenuItem>
             <MenuItem Header="_Édition">

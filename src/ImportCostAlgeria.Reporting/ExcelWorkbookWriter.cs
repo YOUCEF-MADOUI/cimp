@@ -109,7 +109,10 @@ public static class ExcelWorkbookWriter
         // SÉPARÉMENT — une ligne combinée "Autres taxes" unique est explicitement rejetée.
         Line("Total CS (DZD)", r.TotalCsDzd);
         Line("Total PRCT (DZD)", r.TotalPrctDzd);
-        Line("Total TCS (DZD)", r.TotalTcsDzd);
+        // Correction 2026-10-02 (demande utilisateur — ambiguïté CS/TCS) : la ligne "Total TCS" est retirée
+        // du rapport exporté (CS reste la seule taxe de ce type affichée, cohérence avec l'écran
+        // Importation) — TotalTcsDzd continue d'alimenter normalement Total Droits et Taxes/Coût de
+        // revient ci-dessous, rien n'est supprimé du calcul.
         Line("Total DAPS (DZD)", r.TotalDapsDzd);
         Line("Total RPS (DZD)", r.TotalRpsDzd);
         Line("Total TVA (DZD)", r.TotalTvaDzd);

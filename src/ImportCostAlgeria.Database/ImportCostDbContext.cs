@@ -66,6 +66,13 @@ public sealed class CalculationSnapshotRow
     public int AnomalyCount { get; set; }
     public bool HasBlockingAnomalies { get; set; }
     public string CalculationResultJson { get; set; } = "{}";
+    /// <summary>
+    /// Correction 2026-10-02 (Étape 2 — "Persistance des calculs après fermeture de CIMP") : empreinte des
+    /// données d'ENTRÉE utilisées pour produire ce résultat (<see cref="CalculationInputHasher"/>), afin de
+    /// détecter au rechargement si l'importation a été modifiée depuis ce calcul (CalculationStatus =
+    /// Obsolète) sans avoir à tout recalculer pour le savoir.
+    /// </summary>
+    public string InputHash { get; set; } = string.Empty;
 }
 
 /// <summary>

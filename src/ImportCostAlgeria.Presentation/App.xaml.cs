@@ -1,4 +1,5 @@
 using System;
+using System.Linq;
 using System.Windows;
 using Microsoft.Extensions.DependencyInjection;
 using ImportCostAlgeria.Audit;
@@ -82,8 +83,15 @@ public partial class App : Application
         // Section 4.3 (demande utilisateur — "Se souvenir de moi") : tente une reconnexion automatique si
         // un identifiant a été mémorisé précédemment (jamais journalisé en clair : seul le résultat
         // booléen de la tentative apparaît dans les traces de diagnostic, jamais le mot de passe lui-même).
+        // Correction 2026-10-02 (demande utilisateur — "Utiliser un autre compte") : un utilisateur qui a
+        // explicitement choisi "Changer de compte" depuis le menu principal (voir MainViewModel) relance
+        // CIMP avec cet argument pour forcer l'affichage du formulaire de connexion MANUEL cette fois,
+        // même si un identifiant reste mémorisé — sans jamais supprimer ce secret mémorisé (l'utilisateur
+        // peut simplement revenir à son compte habituel au prochain lancement normal).
+        bool forceManualLogin = e.Args.Contains("--switch-account", StringComparer.OrdinalIgnoreCase);
+
         bool autoLoginSucceeded = false;
-        string? rememberedPassword = loginViewModel.TryLoadRememberedCredential();
+        string? rememberedPassword = forceManualLogin ? null : loginViewModel.TryLoadRememberedCredential();
         if (rememberedPassword != null)
         {
             System.Diagnostics.Debug.WriteLine("[CIMP][STARTUP] Identifiant mémorisé détecté, tentative de reconnexion automatique...");

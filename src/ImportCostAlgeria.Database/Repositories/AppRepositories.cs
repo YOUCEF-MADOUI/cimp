@@ -326,7 +326,7 @@ public sealed class CalculationSnapshotRepository
 
     private static readonly JsonSerializerOptions JsonOptions = new() { WriteIndented = false };
 
-    public void SaveSnapshot(Guid companyId, Guid userId, string regulatoryVersionCode, ImportCalculationSummary summary)
+    public void SaveSnapshot(Guid companyId, Guid userId, string regulatoryVersionCode, ImportCalculationSummary summary, string inputHash = "")
     {
         using var ctx = _factory.CreateGlobal();
         ctx.CalculationSnapshots.Add(new CalculationSnapshotRow
@@ -341,7 +341,8 @@ public sealed class CalculationSnapshotRepository
             TotalImportVatDzd = summary.TotalImportVatDzd,
             AnomalyCount = summary.Anomalies.Count,
             HasBlockingAnomalies = summary.HasBlockingAnomalies,
-            CalculationResultJson = JsonSerializer.Serialize(summary, JsonOptions)
+            CalculationResultJson = JsonSerializer.Serialize(summary, JsonOptions),
+            InputHash = inputHash
         });
         ctx.SaveChanges();
     }
@@ -353,6 +354,21 @@ public sealed class CalculationSnapshotRepository
             .Where(s => s.CompanyId == companyId && s.ImportOperationId == importOperationId)
             .OrderByDescending(s => s.ExecutedAtUtc)
             .ToList();
+    }
+
+    /// <summary>
+    /// Correction 2026-10-02 (Étape 2 — "Persistance des calculs après fermeture de CIMP") : dernier
+    /// instantané de calcul sauvegardé pour cette importation (ou null si elle n'a jamais été calculée) —
+    /// utilisé au rechargement de l'écran Importation pour réafficher immédiatement les résultats déjà
+    /// calculés sans forcer un nouveau calcul.
+    /// </summary>
+    public CalculationSnapshotRow? GetLatest(Guid companyId, Guid importOperationId)
+    {
+        using var ctx = _factory.CreateGlobal();
+        return ctx.CalculationSnapshots.AsNoTracking()
+            .Where(s => s.CompanyId == companyId && s.ImportOperationId == importOperationId)
+            .OrderByDescending(s => s.ExecutedAtUtc)
+            .FirstOrDefault();
     }
 }
 

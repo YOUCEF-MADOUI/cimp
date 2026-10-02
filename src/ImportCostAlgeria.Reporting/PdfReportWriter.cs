@@ -178,7 +178,8 @@ public static class PdfReportWriter
                     // rejetée par la demande utilisateur.
                     c.Item().Text($"CS : {r.TotalCsDzd:N2} DZD");
                     c.Item().Text($"PRCT : {r.TotalPrctDzd:N2} DZD");
-                    c.Item().Text($"TCS : {r.TotalTcsDzd:N2} DZD");
+                    // Correction 2026-10-02 (ambiguïté CS/TCS) : ligne "TCS" retirée du rapport PDF (CS
+                    // reste seule affichée) — TotalTcsDzd continue d'alimenter le total droits et taxes.
                     c.Item().Text($"DAPS : {r.TotalDapsDzd:N2} DZD");
                     c.Item().Text($"RPS : {r.TotalRpsDzd:N2} DZD");
                     c.Item().Text($"TVA import : {r.TotalTvaDzd:N2} DZD");

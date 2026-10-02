@@ -383,7 +383,24 @@ public sealed class CurrencyConversionService
         _rateProvider = rateProvider ?? throw new ArgumentNullException(nameof(rateProvider));
     }
 
-    /// <summary>Résout le taux effectif pour convertir <paramref name="fromCurrencyCode"/> vers <paramref name="toCurrencyCode"/>.</summary>
+    /// <summary>
+    /// Résout le taux effectif pour convertir <paramref name="fromCurrencyCode"/> vers <paramref name="toCurrencyCode"/>.
+    /// </summary>
+    /// <remarks>
+    /// NOUVEAU SYSTÈME (correction 2026-10-02, Section 4 — "Corriger définitivement la conversion
+    /// EUR/USD/DZD") : lorsque les DEUX devises disposent chacune d'un taux RÉGLEMENTAIRE publié par
+    /// rapport au DZD (ex: 1 EUR = 150,7166 DA et 1 USD = 133,15 DA, toujours disponibles puisqu'exigés
+    /// pour le calcul douanier), le taux croisé est désormais TOUJOURS calculé automatiquement par la
+    /// formule : Taux_EURversUSD = (EUR -&gt; DZD) / (USD -&gt; DZD) — et plus jamais lu depuis un éventuel
+    /// enregistrement "croisé" publié directement (EUR coté en USD) sur l'écran Taux de change. C'est
+    /// cette confusion qui a permis la publication accidentelle d'une valeur d'ordre de grandeur DZD
+    /// (ex: ~133) comme si elle était un taux EUR→USD, provoquant l'énoncé erroné "16,69 € = 2 228,45 $"
+    /// alors que le résultat correct est environ 18,88 $. Un enregistrement "croisé" direct reste
+    /// néanmoins RECONNU en repli (jamais supprimé de l'architecture), uniquement pour une devise qui
+    /// n'aurait PAS de taux réglementaire DZD publié (extensibilité future), ou lorsqu'un taux MANUEL est
+    /// explicitement saisi par l'utilisateur pour CETTE importation (qui garde toujours la priorité
+    /// absolue).
+    /// </remarks>
     public (decimal EffectiveRate, ExchangeRateRecord? OfficialRecord, CalculationAnomaly? Anomaly) ResolveCrossRate(
         string fromCurrencyCode,
         string toCurrencyCode,
@@ -395,6 +412,40 @@ public sealed class CurrencyConversionService
             return (1.0m, null, null);
         }
 
+        // Un taux manuel saisi par l'utilisateur garde toujours la priorité absolue et doit pouvoir être
+        // comparé à un éventuel taux croisé déjà publié directement (comportement historique inchangé) —
+        // on ne tente donc la dérivation automatique via le DZD que lorsqu'aucun taux manuel n'est fourni.
+        if (!manualOverrideRate.HasValue || manualOverrideRate.Value <= 0m)
+        {
+            bool fromIsDzd = string.Equals(fromCurrencyCode, "DZD", StringComparison.OrdinalIgnoreCase);
+            bool toIsDzd = string.Equals(toCurrencyCode, "DZD", StringComparison.OrdinalIgnoreCase);
+
+            ExchangeRateRecord? fromToDzd = fromIsDzd ? null : _rateProvider.GetRegulatoryRate(fromCurrencyCode, referenceDate);
+            ExchangeRateRecord? toToDzd = toIsDzd ? null : _rateProvider.GetRegulatoryRate(toCurrencyCode, referenceDate);
+
+            if (fromIsDzd && toToDzd != null)
+            {
+                // DZD -> devise : inverse du taux réglementaire (Section 7 — Valeur en douane DZD affichée
+                // en USD = Valeur_DZD / (1 USD = X DA), jamais Valeur_DZD x X).
+                decimal toUnitRate = ExchangeRateNormalization.ToUnitRate(toToDzd);
+                if (toUnitRate != 0m)
+                    return (1m / toUnitRate, toToDzd, null);
+            }
+            else if (toIsDzd && fromToDzd != null)
+            {
+                return (ExchangeRateNormalization.ToUnitRate(fromToDzd), fromToDzd, null);
+            }
+            else if (!fromIsDzd && !toIsDzd && fromToDzd != null && toToDzd != null)
+            {
+                decimal fromUnitRate = ExchangeRateNormalization.ToUnitRate(fromToDzd);
+                decimal toUnitRate = ExchangeRateNormalization.ToUnitRate(toToDzd);
+                if (toUnitRate != 0m)
+                    return (fromUnitRate / toUnitRate, fromToDzd, null);
+            }
+        }
+
+        // Repli (historique, Section 6 du plan multi-devises) : taux "croisé" publié directement (devise
+        // exotique sans taux DZD, ou comparaison d'un taux manuel à un taux croisé déjà publié).
         var official = _rateProvider.GetRate(fromCurrencyCode, toCurrencyCode, referenceDate);
 
         return ExchangeRateNormalization.Resolve(

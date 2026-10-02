@@ -27,7 +27,9 @@
                     <DataGridTextColumn Header="Valide du" Binding="{Binding ValidFrom, StringFormat=dd/MM/yyyy}" Width="90" />
                     <DataGridTextColumn Header="Valide au" Binding="{Binding ValidTo, StringFormat=dd/MM/yyyy}" Width="90" />
                     <DataGridTextColumn Header="Version" Binding="{Binding RegulatoryVersionCode}" Width="100" />
-                    <DataGridTextColumn Header="Statut" Binding="{Binding Status}" Width="90" />
+                    <!-- Correction 2026-10-02 (audit de traduction française) : libellé français du statut
+                         (ex : "Publiée"), jamais le nom brut de RegulatoryRuleStatus (ex : "PublishedNewVersion"). -->
+                    <DataGridTextColumn Header="Statut" Binding="{Binding Status, Converter={StaticResource RegulatoryRuleStatusToFrenchConverter}}" Width="110" />
                     <DataGridTextColumn Header="Source légale" Binding="{Binding LegalSource.OfficialTitle}" Width="*" />
                 </DataGrid.Columns>
             </DataGrid>
@@ -40,7 +42,15 @@
                     <TextBlock Text="⚠️ Réservé à l'Administrateur. Ferme automatiquement la période précédente pour ce couple Taxe/Code SH — n'écrase jamais l'historique." TextWrapping="Wrap" Foreground="DarkOrange" Margin="0,0,0,12" />
 
                     <Label Content="Type de taxe" />
-                    <ComboBox ItemsSource="{Binding RuleTypes}" SelectedItem="{Binding NewRuleType}" />
+                    <!-- Correction 2026-10-02 (audit de traduction française) : ItemTemplate gouverne à la
+                         fois les items du menu déroulant ET la valeur affichée une fois sélectionnée. -->
+                    <ComboBox ItemsSource="{Binding RuleTypes}" SelectedItem="{Binding NewRuleType}">
+                        <ComboBox.ItemTemplate>
+                            <DataTemplate>
+                                <TextBlock Text="{Binding Converter={StaticResource RegulatoryRuleTypeToFrenchConverter}}" />
+                            </DataTemplate>
+                        </ComboBox.ItemTemplate>
+                    </ComboBox>
 
                     <Label Content="Code taxe (ex : DD, TVA, DAPS)" />
                     <TextBox Text="{Binding NewTaxCode, UpdateSourceTrigger=PropertyChanged}" />
@@ -55,7 +65,13 @@
                     <TextBox Text="{Binding NewRatePercent, UpdateSourceTrigger=LostFocus, Converter={StaticResource FlexibleDecimalConverter}}" />
 
                     <Label Content="Assiette de calcul" />
-                    <ComboBox ItemsSource="{Binding CalculationBases}" SelectedItem="{Binding NewCalculationBase}" />
+                    <ComboBox ItemsSource="{Binding CalculationBases}" SelectedItem="{Binding NewCalculationBase}">
+                        <ComboBox.ItemTemplate>
+                            <DataTemplate>
+                                <TextBlock Text="{Binding Converter={StaticResource TaxableBaseTypeToFrenchConverter}}" TextWrapping="Wrap" MaxWidth="280" />
+                            </DataTemplate>
+                        </ComboBox.ItemTemplate>
+                    </ComboBox>
 
                     <Label Content="Date d'entrée en vigueur" />
                     <DatePicker SelectedDate="{Binding NewValidFrom}" />
@@ -66,7 +82,13 @@
 
                     <TextBlock Text="Source légale (obligatoire — jamais de taux sans citation)" FontWeight="Bold" Margin="0,12,0,4" />
                     <Label Content="Niveau hiérarchique de la source" />
-                    <ComboBox ItemsSource="{Binding HierarchyLevels}" SelectedItem="{Binding NewHierarchyLevel}" />
+                    <ComboBox ItemsSource="{Binding HierarchyLevels}" SelectedItem="{Binding NewHierarchyLevel}">
+                        <ComboBox.ItemTemplate>
+                            <DataTemplate>
+                                <TextBlock Text="{Binding Converter={StaticResource LegalSourceHierarchyLevelToFrenchConverter}}" />
+                            </DataTemplate>
+                        </ComboBox.ItemTemplate>
+                    </ComboBox>
 
                     <Label Content="Intitulé officiel (ex : Loi de Finances Complémentaire 2026)" />
                     <TextBox Text="{Binding NewOfficialTitle, UpdateSourceTrigger=PropertyChanged}" />

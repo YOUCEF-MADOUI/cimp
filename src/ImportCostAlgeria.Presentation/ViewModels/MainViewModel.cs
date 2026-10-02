@@ -69,6 +69,7 @@ public sealed class MainViewModel : ObservableObject
         OpenAuditCommand = new RelayCommand(() => OpenChildWindow(_auditLogVm, "CIMP — Journal d'audit"));
         ShowAboutCommand = new RelayCommand(ShowAbout);
         QuitCommand = new RelayCommand(() => Application.Current.Shutdown());
+        SwitchAccountCommand = new RelayCommand(SwitchAccount);
 
         _importationsVm.NavigateToDetail = vm => CurrentView = vm;
         _importationsVm.NavigateBackToList = () => CurrentView = _importationsVm;
@@ -116,6 +117,45 @@ public sealed class MainViewModel : ObservableObject
     public RelayCommand OpenAuditCommand { get; }
     public RelayCommand ShowAboutCommand { get; }
     public RelayCommand QuitCommand { get; }
+
+    /// <summary>
+    /// Demande utilisateur (Section 7 — "Utiliser un autre compte") : CIMP se connecte automatiquement
+    /// avec le dernier identifiant mémorisé (voir App.OnStartup), donc l'écran de connexion n'apparaît
+    /// normalement jamais. Cette commande offre un point d'entrée explicite pour se connecter malgré
+    /// tout avec UN AUTRE compte : elle relance CIMP avec l'argument "--switch-account", qui force
+    /// l'affichage du formulaire de connexion manuel au prochain démarrage SANS supprimer l'identifiant
+    /// actuellement mémorisé (l'utilisateur habituel retrouve la connexion automatique au lancement
+    /// suivant si rien n'est changé).
+    /// </summary>
+    public RelayCommand SwitchAccountCommand { get; }
+
+    private void SwitchAccount()
+    {
+        var confirm = MessageBox.Show(
+            "CIMP va se fermer puis se relancer pour vous permettre de vous connecter avec un autre compte.\n\n" +
+            "Continuer ?",
+            "CIMP — Changer de compte",
+            MessageBoxButton.YesNo,
+            MessageBoxImage.Question);
+        if (confirm != MessageBoxResult.Yes)
+            return;
+
+        var executablePath = Environment.ProcessPath;
+        if (string.IsNullOrWhiteSpace(executablePath))
+        {
+            MessageBox.Show(
+                "Impossible de déterminer l'exécutable de CIMP pour le relancer automatiquement. " +
+                "Fermez puis relancez CIMP manuellement, puis cliquez sur \"Utiliser un autre compte\" " +
+                "sur l'écran de connexion.",
+                "CIMP — Action impossible",
+                MessageBoxButton.OK,
+                MessageBoxImage.Warning);
+            return;
+        }
+
+        System.Diagnostics.Process.Start(executablePath, "--switch-account");
+        Application.Current.Shutdown();
+    }
 
     public void RefreshCompanies()
     {

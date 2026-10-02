@@ -37,6 +37,7 @@
             <conv:NullToVisibilityConverter x:Key="NullToVisibilityConverter" />
             <conv:BoolToVisibilityConverter x:Key="BoolToVisibilityConverter" />
             <conv:InverseBoolToVisibilityConverter x:Key="InverseBoolToVisibilityConverter" />
+            <conv:StringToVisibilityConverter x:Key="StringToVisibilityConverter" />
             <conv:SeverityToBrushConverter x:Key="SeverityToBrushConverter" />
             <conv:CountToVisibilityConverter x:Key="CountToVisibilityConverter" />
             <conv:DateOnlyConverter x:Key="DateOnlyConverter" />
@@ -47,6 +48,11 @@
             <conv:MoneyWithDynamicCurrencyConverter x:Key="MoneyDynamicConverter" />
             <conv:CurrencyCodeToSymbolConverter x:Key="CurrencyCodeToSymbolConverter" />
             <conv:CanonicalExcelFieldToLabelConverter x:Key="CanonicalExcelFieldToLabelConverter" />
+            <conv:FeeAllocationMethodToFrenchConverter x:Key="FeeAllocationMethodToFrenchConverter" />
+            <conv:RegulatoryRuleTypeToFrenchConverter x:Key="RegulatoryRuleTypeToFrenchConverter" />
+            <conv:TaxableBaseTypeToFrenchConverter x:Key="TaxableBaseTypeToFrenchConverter" />
+            <conv:LegalSourceHierarchyLevelToFrenchConverter x:Key="LegalSourceHierarchyLevelToFrenchConverter" />
+            <conv:RegulatoryRuleStatusToFrenchConverter x:Key="RegulatoryRuleStatusToFrenchConverter" />
 
             <Style TargetType="Button">
                 <Setter Property="Padding" Value="10,5" />

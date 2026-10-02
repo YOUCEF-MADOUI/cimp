@@ -93,6 +93,20 @@ public sealed class NullToVisibilityConverter : IValueConverter
         throw new NotSupportedException();
 }
 
+/// <summary>
+/// Convertit une chaîne en Visibility (Collapsed si null/vide, Visible sinon) — utilisé notamment pour
+/// n'afficher un message d'erreur de conversion d'affichage (Section 7, correction 2026-10-02 : "ne
+/// jamais afficher simplement '—' sans explication") que lorsqu'il est réellement renseigné.
+/// </summary>
+public sealed class StringToVisibilityConverter : IValueConverter
+{
+    public object Convert(object? value, Type targetType, object parameter, CultureInfo culture) =>
+        string.IsNullOrWhiteSpace(value as string) ? Visibility.Collapsed : Visibility.Visible;
+
+    public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture) =>
+        throw new NotSupportedException();
+}
+
 /// <summary>Convertit un booléen en Visibility (Visible si vrai).</summary>
 public sealed class BoolToVisibilityConverter : IValueConverter
 {
@@ -223,4 +237,74 @@ public sealed class FlexibleDecimalConverter : IValueConverter
         // alors un retour de validation standard et conserve la dernière valeur valide côté modèle).
         return DependencyProperty.UnsetValue;
     }
+}
+
+/// <summary>
+/// Correction 2026-10-02 (demande utilisateur — Section 10, audit de traduction française) : affiche le
+/// libellé français d'une <see cref="ImportCostAlgeria.Core.Domain.FeeAllocationMethod"/> (ex : "Par
+/// valeur") au lieu du nom brut de l'énumération C# (ex : "ByValue") dans la grille des frais. Logique
+/// déléguée à <see cref="ImportFeeCatalog.AllocationMethodLabelFr"/> (testable hors WPF). Convertisseur
+/// VOLONTAIREMENT à sens unique (pas de ConvertBack) : la sélection réelle dans le ComboBox continue de se
+/// faire directement sur la valeur d'énumération (SelectedItemBinding), jamais via ce texte affiché.
+/// </summary>
+public sealed class FeeAllocationMethodToFrenchConverter : IValueConverter
+{
+    public object Convert(object? value, Type targetType, object? parameter, CultureInfo culture) =>
+        value is ImportCostAlgeria.Core.Domain.FeeAllocationMethod method
+            ? ImportFeeCatalog.AllocationMethodLabelFr(method)
+            : value ?? string.Empty;
+
+    public object ConvertBack(object value, Type targetType, object? parameter, CultureInfo culture) =>
+        throw new NotSupportedException();
+}
+
+/// <summary>
+/// Correction 2026-10-02 (audit de traduction française — écran "Paramètres fiscaux &amp; réglementation") :
+/// affiche en français les énumérations techniques de <see cref="ImportCostAlgeria.Core.Domain.RegulatoryRule"/>
+/// (type de taxe, assiette, niveau de source légale, statut) au lieu de leur nom brut C#. Logique déléguée
+/// à <see cref="RegulatoryLabels"/> (testable hors WPF). Convertisseurs volontairement à sens unique :
+/// la sélection réelle dans les ComboBox continue de se faire directement sur la valeur d'énumération.
+/// </summary>
+public sealed class RegulatoryRuleTypeToFrenchConverter : IValueConverter
+{
+    public object Convert(object? value, Type targetType, object? parameter, CultureInfo culture) =>
+        value is ImportCostAlgeria.Core.Domain.RegulatoryRuleType type
+            ? RegulatoryLabels.RuleTypeLabelFr(type)
+            : value ?? string.Empty;
+
+    public object ConvertBack(object value, Type targetType, object? parameter, CultureInfo culture) =>
+        throw new NotSupportedException();
+}
+
+public sealed class TaxableBaseTypeToFrenchConverter : IValueConverter
+{
+    public object Convert(object? value, Type targetType, object? parameter, CultureInfo culture) =>
+        value is ImportCostAlgeria.Core.Domain.TaxableBaseType baseType
+            ? RegulatoryLabels.TaxableBaseLabelFr(baseType)
+            : value ?? string.Empty;
+
+    public object ConvertBack(object value, Type targetType, object? parameter, CultureInfo culture) =>
+        throw new NotSupportedException();
+}
+
+public sealed class LegalSourceHierarchyLevelToFrenchConverter : IValueConverter
+{
+    public object Convert(object? value, Type targetType, object? parameter, CultureInfo culture) =>
+        value is ImportCostAlgeria.Core.Domain.LegalSourceHierarchyLevel level
+            ? RegulatoryLabels.HierarchyLevelLabelFr(level)
+            : value ?? string.Empty;
+
+    public object ConvertBack(object value, Type targetType, object? parameter, CultureInfo culture) =>
+        throw new NotSupportedException();
+}
+
+public sealed class RegulatoryRuleStatusToFrenchConverter : IValueConverter
+{
+    public object Convert(object? value, Type targetType, object? parameter, CultureInfo culture) =>
+        value is ImportCostAlgeria.Core.Domain.RegulatoryRuleStatus status
+            ? RegulatoryLabels.RuleStatusLabelFr(status)
+            : value ?? string.Empty;
+
+    public object ConvertBack(object value, Type targetType, object? parameter, CultureInfo culture) =>
+        throw new NotSupportedException();
 }

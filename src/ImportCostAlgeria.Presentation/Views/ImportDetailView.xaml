@@ -40,6 +40,17 @@
                        Foreground="#7A5B00" FontWeight="Bold" TextWrapping="Wrap" />
         </Border>
 
+        <!-- Correction 2026-10-02 (Étape 2 — "Persistance des calculs après fermeture de CIMP") : bandeau
+             BLEU distinct des deux précédents — les totaux affichés ci-dessous restent ceux du dernier
+             calcul sauvegardé (jamais remis à zéro), mais les données saisies ont changé depuis : un
+             nouveau calcul est nécessaire avant de considérer ces chiffres comme à jour. -->
+        <Border DockPanel.Dock="Top"
+                Visibility="{Binding IsCalculationOutdated, Converter={StaticResource BoolToVisibilityConverter}}"
+                Background="#E3F2FD" Padding="8" Margin="0,0,0,8">
+            <TextBlock Text="ℹ Les données ont été modifiées depuis le dernier calcul : cliquez sur « Exécuter le calcul complet » pour mettre à jour les résultats affichés ci-dessous."
+                       Foreground="#0D47A1" FontWeight="Bold" TextWrapping="Wrap" />
+        </Border>
+
         <!-- Section 14/22 de la refonte : chaque taxe affichée SÉPARÉMENT (plus un seul total "Autres -->
         <!-- taxes" agrégé) + nouveau TOTAL DÉDOUANEMENT. Montants en DA avec symbole directement après le -->
         <!-- nombre (Section 6/7). La valeur en douane propose un sélecteur d'affichage DA/€/$ (Section 8) -->
@@ -53,6 +64,12 @@
                         <TextBlock Text="{Binding CustomsValueDisplayCurrency}" FontSize="11" Margin="3,0,8,0" VerticalAlignment="Bottom" />
                         <ComboBox ItemsSource="{Binding CustomsValueDisplayCurrencies}" SelectedItem="{Binding CustomsValueDisplayCurrency}" Width="60" />
                     </StackPanel>
+                    <!-- Section 7 (correction 2026-10-02) : message explicite si la conversion d'affichage
+                         est indisponible — jamais un simple "—" sans explication. La valeur réglementaire
+                         en DZD ci-dessus reste, elle, toujours exacte et inchangée. -->
+                    <TextBlock Text="{Binding CustomsValueDisplayErrorFr}"
+                               Visibility="{Binding CustomsValueDisplayErrorFr, Converter={StaticResource StringToVisibilityConverter}}"
+                               FontSize="10" Foreground="#B00020" TextWrapping="Wrap" MaxWidth="220" Margin="0,2,0,0" />
                 </StackPanel>
                 <StackPanel Margin="4">
                     <TextBlock Text="Droits de douane (DD)" FontWeight="Bold" />
@@ -66,10 +83,12 @@
                     <TextBlock Text="TVA" FontWeight="Bold" />
                     <TextBlock Text="{Binding TotalTvaDzd, Converter={StaticResource MoneyDaConverter}}" FontSize="15" />
                 </StackPanel>
-                <StackPanel Margin="4">
-                    <TextBlock Text="TCS" FontWeight="Bold" />
-                    <TextBlock Text="{Binding TotalTcsDzd, Converter={StaticResource MoneyDaConverter}}" FontSize="15" />
-                </StackPanel>
+                <!-- Correction 2026-10-02 (demande utilisateur — ambiguïté CS/TCS) : la ligne "TCS" du
+                     bandeau est RETIRÉE de l'affichage (CS reste la seule taxe de ce type présentée à
+                     l'utilisateur, conformément à la décision explicite prise pour cette correction). Le
+                     calcul/total interne du TCS (TotalTcsDzd, moteur réglementaire, TOTAL DÉDOUANEMENT)
+                     reste intégralement conservé — rien n'est supprimé du modèle ni du moteur, seule cette
+                     ligne d'affichage disparaît pour lever l'ambiguïté visuelle CS/TCS signalée. -->
                 <StackPanel Margin="4">
                     <TextBlock Text="PRCT" FontWeight="Bold" />
                     <TextBlock Text="{Binding TotalPrctDzd, Converter={StaticResource MoneyDaConverter}}" FontSize="15" />
@@ -233,13 +252,13 @@
                                   DisplayMemberPath="DefaultLabelFr" Width="260" />
                         <Button Content="Ajouter ce frais" Command="{Binding AddFeeCommand}" />
                     </StackPanel>
-                    <DataGrid ItemsSource="{Binding Fees}" AutoGenerateColumns="False">
+                    <DataGrid x:Name="FeesDataGrid" ItemsSource="{Binding Fees}" AutoGenerateColumns="False">
                         <DataGrid.Columns>
                             <DataGridTextColumn Header="Catégorie" Binding="{Binding FeeCategoryCode}" Width="140" />
                             <DataGridTextColumn Header="Libellé" Binding="{Binding FeeName}" Width="160" />
                             <!-- Section 7/13 : montant + symbole fusionnés (plus de colonne "Devise" séparée), -->
                             <!-- édition en valeur brute via le mode édition dédié. -->
-                            <DataGridTemplateColumn Header="Montant" Width="95" SortMemberPath="Amount">
+                            <DataGridTemplateColumn x:Name="FeesMontantColumn" Header="Montant" Width="95" SortMemberPath="Amount">
                                 <DataGridTemplateColumn.CellTemplate>
                                     <DataTemplate>
                                         <TextBlock HorizontalAlignment="Right">
@@ -261,8 +280,32 @@
                                  moment par l'utilisateur. Liste centralisée et extensible : ImportFeeCatalog.SupportedFeeCurrencies. -->
                             <DataGridComboBoxColumn Header="Devise" SelectedItemBinding="{Binding CurrencyCode}" Width="80"
                                                      ItemsSource="{x:Static core:ImportFeeCatalog.SupportedFeeCurrencies}" />
+                            <!-- Correction 2026-10-02 (audit de traduction française) : la sélection réelle
+                                 (SelectedItemBinding) reste directement liée à la valeur d'énumération C#
+                                 (aucun impact sur la logique de calcul), mais l'AFFICHAGE — cellule en lecture
+                                 comme items du menu déroulant — passe par FeeAllocationMethodToFrenchConverter
+                                 pour ne jamais montrer de texte anglais brut ("ByValue", "FixedAmount"...). -->
                             <DataGridComboBoxColumn Header="Méthode de répartition" SelectedItemBinding="{Binding AllocationMethod}" Width="150"
-                                                     ItemsSource="{x:Static core:ImportFeeCatalog.AllocationMethodsForV1}" />
+                                                     ItemsSource="{x:Static core:ImportFeeCatalog.AllocationMethodsForV1}">
+                                <DataGridComboBoxColumn.ElementStyle>
+                                    <Style TargetType="TextBlock">
+                                        <Setter Property="Text" Value="{Binding AllocationMethod, Converter={StaticResource FeeAllocationMethodToFrenchConverter}}" />
+                                        <Setter Property="VerticalAlignment" Value="Center" />
+                                        <Setter Property="Margin" Value="4,0,0,0" />
+                                    </Style>
+                                </DataGridComboBoxColumn.ElementStyle>
+                                <DataGridComboBoxColumn.EditingElementStyle>
+                                    <Style TargetType="ComboBox">
+                                        <Setter Property="ItemTemplate">
+                                            <Setter.Value>
+                                                <DataTemplate>
+                                                    <TextBlock Text="{Binding Converter={StaticResource FeeAllocationMethodToFrenchConverter}}" />
+                                                </DataTemplate>
+                                            </Setter.Value>
+                                        </Setter>
+                                    </Style>
+                                </DataGridComboBoxColumn.EditingElementStyle>
+                            </DataGridComboBoxColumn>
                             <DataGridCheckBoxColumn Header="Inclus valeur en douane" Binding="{Binding IncludeInCustomsValue}" Width="130" />
                             <DataGridCheckBoxColumn Header="Inclus coût de revient" Binding="{Binding IncludeInCostOfGoods}" Width="130" />
                             <DataGridTemplateColumn Header="Supprimer" Width="80">

@@ -64,14 +64,20 @@ public sealed class LineDetailDialogViewModel
         Row = row;
         Result = row.Result!;
 
-        TaxesAppliquees = new ObservableCollection<AppliedTaxBreakdown>(Result.CustomsOutcome.AdditionalTaxes);
+        TaxesAppliquees = new ObservableCollection<AppliedTaxBreakdown>(
+            // Correction 2026-10-02 (demande utilisateur — ambiguïté CS/TCS) : TCS retiré de l'affichage du
+            // détail article (CS reste seul affiché) — le calcul/total interne du TCS reste intact, cette
+            // ligne filtre uniquement la PROJECTION D'AFFICHAGE, jamais le résultat de calcul lui-même.
+            Result.CustomsOutcome.AdditionalTaxes.Where(t => !string.Equals(t.TaxCode, "TCS", System.StringComparison.OrdinalIgnoreCase)));
         FraisAlloues = new ObservableCollection<FeeAllocationTrace>(Result.FeeAllocations);
         Anomalies = new ObservableCollection<CalculationAnomaly>(row.AnomaliesForLine);
 
         // Revue du 2026-10-01 (point 5 & 6) : DD, PRCT, TCS, TVA, DAPS toujours affichés explicitement,
         // avec leur statut réel (Applicable / Non applicable / Donnée manquante) — jamais une absence
         // silencieuse de ligne ni un taux à 0 % inventé.
-        var standardStatuses = Result.CustomsOutcome.StandardTaxApplicability ?? new List<TaxApplicabilityStatus>();
+        // Correction 2026-10-02 : TCS exclu ici aussi, pour la même raison que ci-dessus (ambiguïté CS/TCS).
+        var standardStatuses = (Result.CustomsOutcome.StandardTaxApplicability ?? new List<TaxApplicabilityStatus>())
+            .Where(s => !string.Equals(s.TaxCode, "TCS", System.StringComparison.OrdinalIgnoreCase));
         TaxesStandardAvecApplicabilite = new ObservableCollection<StandardTaxDisplayRowViewModel>(
             standardStatuses.Select(status =>
             {
@@ -80,6 +86,7 @@ public sealed class LineDetailDialogViewModel
                 return new StandardTaxDisplayRowViewModel(status, breakdown);
             }));
     }
+
 
     public ImportLineRowViewModel Row { get; }
     public LineFullCalculationResult Result { get; }

@@ -177,6 +177,13 @@ public static class DbContextFactory
             // NULLABLE — une base déjà déployée reste parfaitement utilisable sans elle (aucun bénéfice
             // affiché tant que l'utilisateur n'a rien saisi, jamais une valeur inventée).
             AddColumnIfMissing(connection, "ImportLines", "SalePriceDzd", "TEXT NULL");
+
+            // Correction 2026-10-02 (Étape 2 — "Persistance des calculs après fermeture de CIMP") : empreinte
+            // des données d'entrée de chaque instantané de calcul sauvegardé (CalculationSnapshotRow),
+            // DEFAULT '' pour les lignes déjà existantes dans une base déployée (sera simplement considérée
+            // "non comparable" -> traitée comme potentiellement obsolète au prochain chargement, jamais
+            // une erreur).
+            AddColumnIfMissing(connection, "CalculationSnapshots", "InputHash", "TEXT NOT NULL DEFAULT ''");
         }
         finally
         {

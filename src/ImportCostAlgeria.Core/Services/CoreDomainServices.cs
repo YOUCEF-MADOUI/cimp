@@ -145,6 +145,27 @@ public static class ImportFeeCatalog
         FeeAllocationMethod.Percentage,
         FeeAllocationMethod.Manual
     };
+
+    /// <summary>
+    /// Correction 2026-10-02 (demande utilisateur — Section 10 "aucun terme technique anglais visible à
+    /// l'écran") : libellé français d'une <see cref="FeeAllocationMethod"/>, pour affichage dans la grille
+    /// des frais (au lieu du nom brut de l'énumération C#, ex : "ByValue"). Couvre les 7 valeurs — y
+    /// compris "Par poids"/"Par volume", qui restent utilisées par certains modèles de frais standard
+    /// (<see cref="StandardTemplates"/>) même si elles ne sont pas proposées dans le menu déroulant V1
+    /// (voir <see cref="AllocationMethodsForV1"/>) : un frais existant avec cette méthode doit malgré tout
+    /// s'afficher en français, jamais en anglais brut.
+    /// </summary>
+    public static string AllocationMethodLabelFr(FeeAllocationMethod method) => method switch
+    {
+        FeeAllocationMethod.ByValue => "Par valeur",
+        FeeAllocationMethod.ByQuantity => "Par quantité",
+        FeeAllocationMethod.ByWeight => "Par poids",
+        FeeAllocationMethod.ByVolume => "Par volume",
+        FeeAllocationMethod.FixedAmount => "Montant fixe",
+        FeeAllocationMethod.Percentage => "Pourcentage",
+        FeeAllocationMethod.Manual => "Manuelle",
+        _ => method.ToString()
+    };
 }
 
 /// <summary>
@@ -200,4 +221,58 @@ public sealed class ProductCatalogService
             RequiresUserConfirmation: true,
             RegulatorySafetyNoticeFr: "Produit reconnu dans la base entreprise : le Code SH et l'origine sont proposés pour confirmation. Les taux de droits et taxes seront recalculés selon la réglementation en vigueur à la date de la nouvelle opération.");
     }
+}
+
+/// <summary>
+/// Correction 2026-10-02 (demande utilisateur — Section 10, audit de traduction française, étendu à
+/// l'écran "Paramètres fiscaux &amp; réglementation") : libellés français des énumérations techniques
+/// utilisées par <see cref="RegulatoryRule"/>, pour ne jamais afficher un nom brut d'énumération C# à
+/// l'écran (ex : "CustomsValuePlusPriorTaxesPlusVatDzd"). Logique centralisée ici (testable hors WPF) et
+/// consommée par de simples convertisseurs WPF à sens unique dans ImportCostAlgeria.Presentation.Converters.
+/// </summary>
+public static class RegulatoryLabels
+{
+    public static string RuleTypeLabelFr(RegulatoryRuleType type) => type switch
+    {
+        RegulatoryRuleType.CustomsDuty => "Droit de douane (DD)",
+        RegulatoryRuleType.Vat => "Taxe sur la Valeur Ajoutée (TVA)",
+        RegulatoryRuleType.Daps => "Droit Additionnel Provisoire de Sauvegarde (DAPS)",
+        RegulatoryRuleType.Tic => "Taxe Intérieure de Consommation (TIC)",
+        RegulatoryRuleType.Rdae => "Redevance / Prélèvement douanier (RDAE)",
+        RegulatoryRuleType.SpecificTax => "Taxe spécifique / parafiscale",
+        RegulatoryRuleType.Exemption => "Exonération / Franchise",
+        _ => type.ToString()
+    };
+
+    public static string TaxableBaseLabelFr(TaxableBaseType baseType) => baseType switch
+    {
+        TaxableBaseType.CustomsValueDzd => "Valeur en douane",
+        TaxableBaseType.CustomsValuePlusDutiesAndTaxesExVatDzd => "Valeur en douane + droits et taxes hors TVA (Art. 19 CTCA)",
+        TaxableBaseType.PhysicalQuantityOrWeight => "Quantité physique / poids",
+        TaxableBaseType.CustomsValuePlusPriorTaxesPlusVatDzd => "Valeur en douane + taxes antérieures + TVA",
+        _ => baseType.ToString()
+    };
+
+    public static string HierarchyLevelLabelFr(LegalSourceHierarchyLevel level) => level switch
+    {
+        LegalSourceHierarchyLevel.Level1_JournalOfficielJora => "Niveau 1 — Journal officiel (JORA)",
+        LegalSourceHierarchyLevel.Level2_DouanesDgdAlces => "Niveau 2 — Douanes algériennes (DGD/ALCES)",
+        LegalSourceHierarchyLevel.Level3_MinistereFinancesDgi => "Niveau 3 — Ministère des Finances (DGI)",
+        LegalSourceHierarchyLevel.Level4_TextesReglementairesOfficiels => "Niveau 4 — Textes réglementaires officiels",
+        LegalSourceHierarchyLevel.Level5_AutresSourcesInstitutionnelles => "Niveau 5 — Autres sources institutionnelles",
+        LegalSourceHierarchyLevel.Level6_SourcesSecondairesAideUniquement => "Niveau 6 — Sources secondaires (aide uniquement)",
+        _ => level.ToString()
+    };
+
+    public static string RuleStatusLabelFr(RegulatoryRuleStatus status) => status switch
+    {
+        RegulatoryRuleStatus.Detected => "Détectée",
+        RegulatoryRuleStatus.AiAnalyzed => "Analysée par l'IA",
+        RegulatoryRuleStatus.Proposed => "Proposée",
+        RegulatoryRuleStatus.AdminVerified => "Vérifiée par l'administrateur",
+        RegulatoryRuleStatus.PublishedNewVersion => "Publiée",
+        RegulatoryRuleStatus.Archived => "Archivée",
+        RegulatoryRuleStatus.Rejected => "Rejetée",
+        _ => status.ToString()
+    };
 }
