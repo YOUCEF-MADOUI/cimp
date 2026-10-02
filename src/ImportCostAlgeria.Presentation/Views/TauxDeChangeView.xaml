@@ -33,7 +33,7 @@
                 <Label Content="Devise de base (ISO3, ex: EUR)" />
                 <TextBox Text="{Binding NewCurrencyCode, UpdateSourceTrigger=PropertyChanged}" MaxLength="3" />
 
-                <Label Content="Devise de cotation (laisser DZD : TOUJOURS DZD pour EUR et USD — le taux EUR/USD est calculé automatiquement par CIMP, jamais saisi directement)" TextElement.FontStyle="Italic" TextWrapping="Wrap" />
+                <TextBlock Text="Devise de cotation (laisser DZD : TOUJOURS DZD pour EUR et USD — le taux EUR/USD est calculé automatiquement par CIMP, jamais saisi directement)" FontStyle="Italic" TextWrapping="Wrap" Margin="0,8,0,0" />
                 <TextBox Text="{Binding NewQuoteCurrencyCode, UpdateSourceTrigger=PropertyChanged}" MaxLength="3" />
 
                 <Label Content="Quotité (nombre d'unités de la devise de base pour ce taux, 1 par défaut)" />
