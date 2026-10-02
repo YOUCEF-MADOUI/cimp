@@ -112,7 +112,13 @@ public sealed class ImportDetailViewModel : ObservableObject
         AddLineCommand = new RelayCommand(AddManualLine);
         RemoveLineCommand = new RelayCommand<ImportLineRowViewModel>(RemoveLine);
         ImportExcelCommand = new RelayCommand(OpenExcelWizard);
-        CalculateCommand = new RelayCommand(Calculate);
+        // Correction CS1503 : Calculate(bool showResultMessage = true) a un paramètre optionnel, mais une
+        // conversion de groupe de méthodes vers un délégué (RelayCommand attend un Action à ZÉRO
+        // paramètre) exige une correspondance d'arité EXACTE en C# — la valeur par défaut n'est prise en
+        // compte que lors d'un appel direct, jamais lors de la formation d'un délégué. On passe donc
+        // explicitement par un lambda qui appelle Calculate() sans argument (utilise donc bien la valeur
+        // par défaut showResultMessage = true, comportement strictement identique à avant).
+        CalculateCommand = new RelayCommand(() => Calculate());
         SaveCommand = new RelayCommand(SaveInputsOnly);
         ExportExcelCommand = new RelayCommand(ExportExcel);
         ExportPdfCommand = new RelayCommand(ExportPdf);

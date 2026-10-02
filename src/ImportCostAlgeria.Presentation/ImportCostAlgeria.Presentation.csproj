@@ -1,9 +1,11 @@
-<Project Sdk="Microsoft.NET.Sdk.WindowsDesktop">
+<Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <!--
       Application Windows native WPF (Priorité 1 du plan de finalisation).
-      IMPORTANT (transparence totale — voir rapport final section E) : la compilation d'un projet WPF
-      (Microsoft.NET.Sdk.WindowsDesktop, UseWPF=true) nécessite la compilation XAML->BAML, qui n'est
+      Correction NETSDK1137 : le SDK racine est Microsoft.NET.Sdk (et non plus
+      Microsoft.NET.Sdk.WindowsDesktop, devenu inutile depuis .NET 6+) — UseWPF=true ci-dessous suffit à
+      activer la prise en charge WPF (compilation XAML->BAML, références WindowsBase/PresentationCore/...).
+      IMPORTANT (transparence totale — voir rapport final section E) : cette compilation XAML->BAML n'est
       possible QUE sous Windows. Ce projet est donc écrit pour être ouvert, compilé et exécuté par
       l'utilisateur dans Visual Studio 2022 sous Windows (F5), où le SDK .NET 8 complet est disponible.
     -->
