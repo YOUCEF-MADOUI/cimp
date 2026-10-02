@@ -66,6 +66,8 @@ public sealed class UiRefactorAndProfitTests
             ReferenceDate = new DateOnly(2026, 6, 1),
             SupplierName = "Fournisseur Test",
             ExportShippingCountryIso2 = "FR",
+            ArrivalPortOrBorder = "Port d'Alger",
+            TransportMode = "Maritime",
             MainCurrencyCode = "EUR",
             AuthorizationCurrencyCode = "USD",
             Incoterm = IncotermCode.FOB,
@@ -105,6 +107,8 @@ public sealed class UiRefactorAndProfitTests
             ReferenceDate = new DateOnly(2026, 6, 1),
             SupplierName = "Fournisseur Test",
             ExportShippingCountryIso2 = "FR",
+            ArrivalPortOrBorder = "Port d'Alger",
+            TransportMode = "Maritime",
             MainCurrencyCode = "USD",
             AuthorizationCurrencyCode = "USD", // Section 11 : même devise -> aucune conversion à afficher.
             Incoterm = IncotermCode.FOB,
@@ -138,6 +142,8 @@ public sealed class UiRefactorAndProfitTests
             ReferenceDate = new DateOnly(2026, 6, 1),
             SupplierName = "Fournisseur Test",
             ExportShippingCountryIso2 = "FR",
+            ArrivalPortOrBorder = "Port d'Alger",
+            TransportMode = "Maritime",
             MainCurrencyCode = "EUR",
             AuthorizationCurrencyCode = "USD",
             Incoterm = IncotermCode.FOB,
@@ -176,6 +182,8 @@ public sealed class UiRefactorAndProfitTests
             ReferenceDate = new DateOnly(2026, 6, 1),
             SupplierName = "Fournisseur Test",
             ExportShippingCountryIso2 = "FR",
+            ArrivalPortOrBorder = "Port d'Alger",
+            TransportMode = "Maritime",
             MainCurrencyCode = "EUR",
             AuthorizationCurrencyCode = "USD",
             Incoterm = IncotermCode.FOB,
@@ -208,6 +216,8 @@ public sealed class UiRefactorAndProfitTests
             ReferenceDate = new DateOnly(2026, 6, 1),
             SupplierName = "Fournisseur Test",
             ExportShippingCountryIso2 = "FR",
+            ArrivalPortOrBorder = "Port d'Alger",
+            TransportMode = "Maritime",
             MainCurrencyCode = "DZD", // Aucune conversion nécessaire (taux = 1), calcul simplifié et exact.
             Incoterm = IncotermCode.FOB,
             Lines =
@@ -236,6 +246,8 @@ public sealed class UiRefactorAndProfitTests
             ReferenceDate = new DateOnly(2026, 6, 1),
             SupplierName = "Fournisseur Test",
             ExportShippingCountryIso2 = "FR",
+            ArrivalPortOrBorder = "Port d'Alger",
+            TransportMode = "Maritime",
             MainCurrencyCode = "DZD",
             Incoterm = IncotermCode.FOB,
             // Taux par défaut d'usine (CS 3 %, TVA 19 %, PRCT 2 %, TCS 0 %, DD 0 %) — AUCUNE règle
@@ -354,6 +366,8 @@ public sealed class UiRefactorAndProfitTests
             ReferenceDate = new DateOnly(2026, 6, 1),
             SupplierName = "Fournisseur Test",
             ExportShippingCountryIso2 = "FR",
+            ArrivalPortOrBorder = "Port d'Alger",
+            TransportMode = "Maritime",
             MainCurrencyCode = "EUR",
             Incoterm = IncotermCode.FOB,
             Lines =
