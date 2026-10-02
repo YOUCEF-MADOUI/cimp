@@ -141,6 +141,8 @@ public sealed class ImportCostDbContext : DbContext
             b.Property(x => x.ManualExchangeRateOverride).HasPrecision(18, 6);
             b.Property(x => x.AuthorizationCurrencyCode).IsRequired().HasMaxLength(8).HasDefaultValue("USD");
             b.Property(x => x.ManualAuthorizationExchangeRateOverride).HasPrecision(18, 6);
+            b.Property(x => x.ManualPrctRatePercent).HasPrecision(9, 4);
+            b.Property(x => x.ManualTcsRatePercent).HasPrecision(9, 4);
             b.HasMany(op => op.Lines).WithOne().HasForeignKey("ImportOperationId").OnDelete(DeleteBehavior.Cascade);
             b.HasMany(op => op.Fees).WithOne().HasForeignKey("ImportOperationId").OnDelete(DeleteBehavior.Cascade);
             b.Navigation(op => op.Lines).AutoInclude();
@@ -154,6 +156,7 @@ public sealed class ImportCostDbContext : DbContext
             b.Property(x => x.Quantity).HasPrecision(18, 4);
             b.Property(x => x.UnitPurchasePrice).HasPrecision(18, 4);
             b.Property(x => x.ExcelDutyRatePercent).HasPrecision(9, 4);
+            b.Property(x => x.ManualVatRatePercent).HasPrecision(9, 4);
             b.Property(x => x.LineGrossWeightKg).HasPrecision(18, 4);
             b.Property(x => x.LineVolumeM3).HasPrecision(18, 4);
 

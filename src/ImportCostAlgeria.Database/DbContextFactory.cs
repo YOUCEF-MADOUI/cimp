@@ -147,6 +147,18 @@ public static class DbContextFactory
             // Revue du 2026-10-01 (point 5 — Droits et taxes par code SH) : RegulatoryRule.IsApplicable.
             // DEFAULT 1 (true) préserve le comportement de toutes les règles déjà publiées (applicables).
             AddColumnIfMissing(connection, "RegulatoryRules", "IsApplicable", "INTEGER NOT NULL DEFAULT 1");
+
+            // Revue du 2026-10-02 (cas de référence D10 réel) : nouvelles colonnes NULLABLE — une base déjà
+            // déployée reste parfaitement utilisable sans elles (comportement par défaut inchangé tant que
+            // l'utilisateur ne les renseigne pas explicitement).
+            AddColumnIfMissing(connection, "ImportOperations", "PurchaseCountryIso2", "TEXT NULL");
+            AddColumnIfMissing(connection, "ImportOperations", "ManualPrctRatePercent", "TEXT NULL");
+            AddColumnIfMissing(connection, "ImportOperations", "UserConfirmedManualPrct", "INTEGER NOT NULL DEFAULT 0");
+            AddColumnIfMissing(connection, "ImportOperations", "ManualTcsRatePercent", "TEXT NULL");
+            AddColumnIfMissing(connection, "ImportOperations", "UserConfirmedManualTcs", "INTEGER NOT NULL DEFAULT 0");
+            AddColumnIfMissing(connection, "ImportLines", "ManualVatRatePercent", "TEXT NULL");
+            AddColumnIfMissing(connection, "ImportLines", "UserConfirmedManualVatRate", "INTEGER NOT NULL DEFAULT 0");
+            AddColumnIfMissing(connection, "ImportLines", "VatExemptionReasonFr", "TEXT NULL");
         }
         finally
         {

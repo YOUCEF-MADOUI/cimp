@@ -75,7 +75,13 @@ public sealed class IncotermDynamicFieldService
 }
 
 /// <summary>
-/// Catalogue des 18 types de frais d'importation standards + création de frais personnalisés (Section 9).
+/// Catalogue des 19 types de frais d'importation standards + création de frais personnalisés (Section 9).
+/// Revue du 2026-10-02 (cas de référence D10 réel) : "RPS" (Redevance de Prestation de Service, 2 500 DZD
+/// sur le D10 SARL HYMA TRADE) rejoint ce catalogue — RÉUTILISE le modèle de frais existant (montant fixe,
+/// réparti également entre les articles) plutôt que de créer un second système de "frais réglementaires"
+/// parallèle : la RPS n'est pas une taxe assise sur la valeur en douane (donc jamais dans RegulatoryRule),
+/// mais une redevance forfaitaire post-dédouanement, exactement le cas d'usage pour lequel
+/// FeeAllocationMethod.FixedAmount existe déjà.
 /// </summary>
 public sealed record StandardFeeTemplate(
     string CategoryCode,
@@ -106,7 +112,22 @@ public static class ImportFeeCatalog
         new StandardFeeTemplate("CONTROLE",                   "Contrôle aux frontières",                FeeAllocationMethod.ByValue,    false, CustomsAdjustmentTreatment.PostIntroductionExcluded, true),
         new StandardFeeTemplate("INSPECTION",                 "Inspection",                             FeeAllocationMethod.ByValue,    false, CustomsAdjustmentTreatment.PostIntroductionExcluded, true),
         new StandardFeeTemplate("CERTIFICATION",              "Certification / Conformité",             FeeAllocationMethod.ByValue,    false, CustomsAdjustmentTreatment.PostIntroductionExcluded, true),
-        new StandardFeeTemplate("AUTRES_FRAIS",               "Autres frais",                           FeeAllocationMethod.ByValue,    false, CustomsAdjustmentTreatment.PostIntroductionExcluded, true)
+        new StandardFeeTemplate("AUTRES_FRAIS",               "Autres frais",                           FeeAllocationMethod.ByValue,    false, CustomsAdjustmentTreatment.PostIntroductionExcluded, true),
+        new StandardFeeTemplate("RPS",                        "Redevance de Prestation de Service (RPS)", FeeAllocationMethod.FixedAmount, false, CustomsAdjustmentTreatment.PostIntroductionExcluded, true)
+    };
+
+    /// <summary>
+    /// Méthodes de répartition proposées à l'écran en V1 (Section 19) : "Par poids" et "Par volume" restent
+    /// disponibles dans FeeAllocationMethod pour une évolution future, mais ne doivent PAS être proposées
+    /// dans l'interface actuelle (fonctionnalité abandonnée pour V1, Section 35).
+    /// </summary>
+    public static readonly IReadOnlyList<FeeAllocationMethod> AllocationMethodsForV1 = new[]
+    {
+        FeeAllocationMethod.ByValue,
+        FeeAllocationMethod.ByQuantity,
+        FeeAllocationMethod.FixedAmount,
+        FeeAllocationMethod.Percentage,
+        FeeAllocationMethod.Manual
     };
 }
 

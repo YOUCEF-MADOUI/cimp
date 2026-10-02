@@ -72,7 +72,13 @@ public sealed record LineCustomsResult(
     // "standard" (PRCT, TCS, DAPS) pour ce code SH/cette date, construit UNIQUEMENT à partir des règles
     // réglementaires réellement résolues (RegulatoryRuleEngine.BuildStandardTaxApplicabilityReport) —
     // jamais un taux inventé ni une absence silencieuse. Liste vide si le code SH n'a pas pu être résolu.
-    IReadOnlyList<TaxApplicabilityStatus>? StandardTaxApplicability = null);
+    IReadOnlyList<TaxApplicabilityStatus>? StandardTaxApplicability = null,
+    // Revue du 2026-10-02 (Section 12 — TVA ne doit jamais rester silencieusement à 0) : origine du taux
+    // de TVA réellement appliqué (VatRatePercent) — DonneeOfficielle (règle réglementaire), DonneeUtilisateur
+    // (taux confirmé manuellement en l'absence de règle) ou CalculDuLogiciel (aucune règle ET aucune
+    // confirmation : VatRatePercent reste à 0 mais ne doit JAMAIS être présenté comme définitif — la ligne
+    // est de toute façon déjà bloquante, voir ImportCalculationSummary.Anomalies).
+    DataOriginTag VatRateOriginTag = DataOriginTag.CalculDuLogiciel);
 
 /// <summary>
 /// Résultat 2 (Section 26) : Coût d'acquisition et Coût de revient économique réel.
@@ -604,6 +610,26 @@ public sealed class CustomsValueCalculator
                         "CFR_MISSING_INSURANCE",
                         "⚠️ Incoterm CFR mais assurance absente (Art. 16 octies §1 e) du Code des Douanes)."));
                 }
+
+                // Revue du 2026-10-02 (cas de référence D10 réel, Section 6 — CRITIQUE : éviter le double
+                // comptage du fret). En Incoterm CFR, le prix facturé (PTFN) inclut DÉJÀ le fret jusqu'au
+                // point convenu : un frais "FRET_INTERNATIONAL" ajouté EN PLUS avec un traitement
+                // "Addition_Art16Octies" additionnerait une seconde fois un fret déjà intégré au prix. Ne
+                // jamais corriger silencieusement : on avertit explicitement l'utilisateur pour qu'il
+                // confirme si ce fret est réellement un complément non compris dans le prix CFR, ou s'il
+                // doit être requalifié en "Déjà inclus dans le prix facturé" (CustomsAdjustmentTreatment
+                // .IncludedInInvoicePrice, IncludeInCustomsValue = false).
+                foreach (var possibleDoubleCountedFreight in operation.Fees.Where(f =>
+                    f.FeeCategoryCode.Contains("FRET", StringComparison.OrdinalIgnoreCase) &&
+                    f.Amount > 0m &&
+                    f.IncludeInCustomsValue &&
+                    f.CustomsTreatment == CustomsAdjustmentTreatment.Addition_Art16Octies))
+                {
+                    anomalies.Add(new CalculationAnomaly(
+                        AnomalySeverity.Avertissement,
+                        "CFR_POSSIBLE_FREIGHT_DOUBLE_COUNT",
+                        $"⚠️ Incoterm CFR : le frais '{possibleDoubleCountedFreight.FeeName}' est ajouté EN PLUS à la valeur en douane (traitement \"Addition\"). En CFR, le prix facturé inclut normalement déjà le fret jusqu'au point convenu — vérifiez qu'il ne s'agit pas d'un double comptage. Si ce fret est déjà compris dans le prix facturé, requalifiez ce frais en \"Déjà inclus dans le prix facturé\" (ne pas l'ajouter à la valeur en douane)."));
+                }
                 break;
         }
     }
@@ -845,9 +871,20 @@ public sealed class ImportCalculationOrchestrator
             // 4. Droit de douane (DD) = Valeur en douane × Taux DD
             decimal customsDutyDzd = CurrencyCalculator.RoundDzd(customsValueDzd * (effectiveDutyRate / 100m));
 
-            // 5. Autres taxes et prélèvements applicables (DAPS, TIC, RDAE...)
+            // 5. Taxes additionnelles AVANT TVA (CS, DAPS, TIC, RDAE...) : assiette Valeur douane, ou
+            // Valeur douane + DD, selon la règle (comportement inchangé). Revue du 2026-10-02 (cas de
+            // référence D10 réel) : une règle dont l'assiette est explicitement
+            // TaxableBaseType.CustomsValuePlusPriorTaxesPlusVatDzd (ex: PRCT) a besoin du montant de TVA,
+            // pas encore connu ici — elle est donc calculée PLUS BAS, après la TVA (point 6bis).
+            var beforeVatTaxRules = regOutcome.AdditionalTaxRules
+                .Where(r => r.CalculationBase != TaxableBaseType.CustomsValuePlusPriorTaxesPlusVatDzd)
+                .ToList();
+            var afterVatTaxRules = regOutcome.AdditionalTaxRules
+                .Where(r => r.CalculationBase == TaxableBaseType.CustomsValuePlusPriorTaxesPlusVatDzd)
+                .ToList();
+
             var additionalTaxBreakdowns = new List<AppliedTaxBreakdown>();
-            foreach (var taxRule in regOutcome.AdditionalTaxRules)
+            foreach (var taxRule in beforeVatTaxRules)
             {
                 decimal taxBase = taxRule.CalculationBase == TaxableBaseType.CustomsValueDzd
                     ? customsValueDzd
@@ -868,18 +905,169 @@ public sealed class ImportCalculationOrchestrator
                     OriginTag: DataOriginTag.DonneeOfficielle));
             }
 
-            decimal totalAdditionalTaxesDzd = additionalTaxBreakdowns.Sum(t => t.TaxAmountDzd);
-
             // Revue du 2026-10-01 (point 5 & 6) : statut explicite des taxes additionnelles "standard"
-            // (PRCT, TCS, DAPS) pour affichage sur l'écran Importation — construit uniquement à partir du
-            // résultat déjà résolu ci-dessus (regOutcome), sans recalcul ni invention de taux.
+            // (CS, PRCT, TCS, DAPS) pour affichage sur l'écran Importation — construit uniquement à partir
+            // du résultat déjà résolu ci-dessus (regOutcome), sans recalcul ni invention de taux.
             var standardTaxApplicability = RegulatoryRuleEngine.BuildStandardTaxApplicabilityReport(
                 regOutcome, RegulatoryRuleEngine.StandardAdditionalTaxCodes);
 
+            bool HasOfficialOutcomeFor(string taxCode) => standardTaxApplicability.Any(s =>
+                string.Equals(s.TaxCode, taxCode, StringComparison.OrdinalIgnoreCase) && s.Kind != TaxApplicabilityKind.DonneeManquante);
+
+            // Revue du 2026-10-02 (Section 15) : TCS confirmée MANUELLEMENT UNE SEULE FOIS pour toute
+            // l'importation (operation.ManualTcsRatePercent), appliquée uniquement si aucune règle officielle
+            // (applicable ou explicitement non applicable) n'existe pour ce code SH — jamais pour écraser
+            // une règle officielle. Base conservatrice (Valeur douane) faute de preuve réglementaire d'une
+            // autre assiette pour la TCS dans le cas de référence D10.
+            if (!HasOfficialOutcomeFor("TCS"))
+            {
+                if (operation.UserConfirmedManualTcs && operation.ManualTcsRatePercent.HasValue)
+                {
+                    decimal manualTcsBase = customsValueDzd;
+                    decimal manualTcsAmount = CurrencyCalculator.RoundDzd(manualTcsBase * (operation.ManualTcsRatePercent.Value / 100m));
+                    additionalTaxBreakdowns.Add(new AppliedTaxBreakdown(
+                        TaxCode: "TCS",
+                        TaxNameFr: "Taxe de Contribution de Solidarité (TCS)",
+                        TaxableBaseDzd: manualTcsBase,
+                        RatePercent: operation.ManualTcsRatePercent.Value,
+                        TaxAmountDzd: manualTcsAmount,
+                        IsNonRecoverable: true,
+                        RegulatoryRuleCode: "MANUEL",
+                        LegalArticleReference: "Taux saisi manuellement par l'utilisateur (aucune règle officielle publiée)",
+                        JoraReference: "N/A",
+                        RegulatoryVersionCode: "MANUEL",
+                        OriginTag: DataOriginTag.DonneeUtilisateur));
+                    anomalies.Add(new CalculationAnomaly(
+                        AnomalySeverity.Avertissement,
+                        "TCS_MANUAL_RATE_USED",
+                        $"⚠️ Ligne {line.LineNumber} ({line.ProductReference}) : Taux TCS ({operation.ManualTcsRatePercent.Value:F2} %) saisi manuellement pour cette importation, en l'absence de règle officielle.",
+                        LineNumber: line.LineNumber));
+                }
+                else
+                {
+                    anomalies.Add(new CalculationAnomaly(
+                        AnomalySeverity.Avertissement,
+                        "TCS_RATE_NOT_DETERMINED",
+                        $"⚠️ Ligne {line.LineNumber} ({line.ProductReference}) : Donnée réglementaire manquante pour la Taxe de Contribution de Solidarité (TCS) — confirmez un taux pour cette importation (écran Importation) ou laissez non déterminé.",
+                        LineNumber: line.LineNumber));
+                }
+            }
+
+            decimal totalBeforeVatAdditionalTaxesDzd = additionalTaxBreakdowns.Sum(t => t.TaxAmountDzd);
+
             // 6. TVA à l'importation (Art. 19 CTCA : Assiette = Valeur en douane + Droits de douane + Taxes hors TVA)
-            decimal vatTaxableBaseDzd = CurrencyCalculator.RoundDzd(customsValueDzd + customsDutyDzd + totalAdditionalTaxesDzd);
-            decimal appliedVatRate = regOutcome.VatRule?.RatePercent ?? 0m;
+            decimal vatTaxableBaseDzd = CurrencyCalculator.RoundDzd(customsValueDzd + customsDutyDzd + totalBeforeVatAdditionalTaxesDzd);
+            decimal appliedVatRate;
+            DataOriginTag vatRateOriginTag;
+            if (regOutcome.VatRule != null)
+            {
+                appliedVatRate = regOutcome.VatRule.RatePercent;
+                vatRateOriginTag = DataOriginTag.DonneeOfficielle;
+            }
+            else if (line.UserConfirmedManualVatRate && line.ManualVatRatePercent.HasValue)
+            {
+                // Revue du 2026-10-02 (Section 12) : taux de TVA confirmé manuellement en l'absence de règle
+                // officielle — jamais un 0 % silencieux : tracé comme donnée utilisateur et toujours accompagné
+                // d'une anomalie explicite (motif d'exonération exigé si le taux confirmé est 0 %).
+                appliedVatRate = line.ManualVatRatePercent.Value;
+                vatRateOriginTag = DataOriginTag.DonneeUtilisateur;
+
+                if (appliedVatRate == 0m && string.IsNullOrWhiteSpace(line.VatExemptionReasonFr))
+                {
+                    anomalies.Add(new CalculationAnomaly(
+                        AnomalySeverity.Avertissement,
+                        "VAT_EXEMPTION_REASON_MISSING",
+                        $"⚠️ Ligne {line.LineNumber} ({line.ProductReference}) : Exonération de TVA (0 %) confirmée sans motif précisé — renseignez le motif d'exonération.",
+                        LineNumber: line.LineNumber));
+                }
+                else if (appliedVatRate == 0m)
+                {
+                    anomalies.Add(new CalculationAnomaly(
+                        AnomalySeverity.Info,
+                        "VAT_MANUAL_EXEMPTION_CONFIRMED",
+                        $"ℹ️ Ligne {line.LineNumber} ({line.ProductReference}) : Exonération de TVA confirmée manuellement — motif : {line.VatExemptionReasonFr}.",
+                        LineNumber: line.LineNumber));
+                }
+                else
+                {
+                    anomalies.Add(new CalculationAnomaly(
+                        AnomalySeverity.Avertissement,
+                        "MANUAL_VAT_RATE_USED",
+                        $"⚠️ Ligne {line.LineNumber} ({line.ProductReference}) : Taux de TVA ({appliedVatRate:F2} %) saisi manuellement, en l'absence de règle officielle.",
+                        LineNumber: line.LineNumber));
+                }
+            }
+            else
+            {
+                // Aucune règle officielle ni confirmation manuelle : la ligne reste BLOQUANTE (voir la
+                // boucle regOutcome.WarningsOrMissingInfo ci-dessus -> AnomalySeverity.Blocage
+                // "TVA réglementaire introuvable") — ce 0 % n'est JAMAIS un résultat définitif à afficher
+                // comme tel (voir LineDetailDialogViewModel.TvaStatutFr côté IHM).
+                appliedVatRate = 0m;
+                vatRateOriginTag = DataOriginTag.CalculDuLogiciel;
+            }
+
             decimal importVatDzd = CurrencyCalculator.RoundDzd(vatTaxableBaseDzd * (appliedVatRate / 100m));
+
+            // 6bis. Taxes additionnelles APRÈS TVA — assiette Valeur douane + taxes avant TVA + TVA, observée
+            // pour le PRCT sur le D10 de référence (SARL HYMA TRADE). Calculées ICI car leur assiette a
+            // besoin de importVatDzd, désormais connu.
+            foreach (var taxRule in afterVatTaxRules)
+            {
+                decimal taxBase = CurrencyCalculator.RoundDzd(customsValueDzd + totalBeforeVatAdditionalTaxesDzd + importVatDzd);
+                decimal taxAmount = CurrencyCalculator.RoundDzd(taxBase * (taxRule.RatePercent / 100m));
+
+                additionalTaxBreakdowns.Add(new AppliedTaxBreakdown(
+                    TaxCode: taxRule.TaxCode,
+                    TaxNameFr: taxRule.TaxNameFr,
+                    TaxableBaseDzd: taxBase,
+                    RatePercent: taxRule.RatePercent,
+                    TaxAmountDzd: taxAmount,
+                    IsNonRecoverable: true,
+                    RegulatoryRuleCode: taxRule.Code,
+                    LegalArticleReference: taxRule.LegalSource.ArticleReference,
+                    JoraReference: taxRule.LegalSource.JoraReference,
+                    RegulatoryVersionCode: taxRule.RegulatoryVersionCode,
+                    OriginTag: DataOriginTag.DonneeOfficielle));
+            }
+
+            // Revue du 2026-10-02 (Section 15) : PRCT confirmé MANUELLEMENT UNE SEULE FOIS pour toute
+            // l'importation, avec la même assiette (après TVA) que la règle officielle observée sur le D10.
+            if (!HasOfficialOutcomeFor("PRCT"))
+            {
+                if (operation.UserConfirmedManualPrct && operation.ManualPrctRatePercent.HasValue)
+                {
+                    decimal manualPrctBase = CurrencyCalculator.RoundDzd(customsValueDzd + totalBeforeVatAdditionalTaxesDzd + importVatDzd);
+                    decimal manualPrctAmount = CurrencyCalculator.RoundDzd(manualPrctBase * (operation.ManualPrctRatePercent.Value / 100m));
+                    additionalTaxBreakdowns.Add(new AppliedTaxBreakdown(
+                        TaxCode: "PRCT",
+                        TaxNameFr: "Précompte à l'importation (PRCT)",
+                        TaxableBaseDzd: manualPrctBase,
+                        RatePercent: operation.ManualPrctRatePercent.Value,
+                        TaxAmountDzd: manualPrctAmount,
+                        IsNonRecoverable: true,
+                        RegulatoryRuleCode: "MANUEL",
+                        LegalArticleReference: "Taux saisi manuellement par l'utilisateur (aucune règle officielle publiée)",
+                        JoraReference: "N/A",
+                        RegulatoryVersionCode: "MANUEL",
+                        OriginTag: DataOriginTag.DonneeUtilisateur));
+                    anomalies.Add(new CalculationAnomaly(
+                        AnomalySeverity.Avertissement,
+                        "PRCT_MANUAL_RATE_USED",
+                        $"⚠️ Ligne {line.LineNumber} ({line.ProductReference}) : Taux PRCT ({operation.ManualPrctRatePercent.Value:F2} %) saisi manuellement pour cette importation, en l'absence de règle officielle.",
+                        LineNumber: line.LineNumber));
+                }
+                else
+                {
+                    anomalies.Add(new CalculationAnomaly(
+                        AnomalySeverity.Avertissement,
+                        "PRCT_RATE_NOT_DETERMINED",
+                        $"⚠️ Ligne {line.LineNumber} ({line.ProductReference}) : Donnée réglementaire manquante pour le Précompte à l'importation (PRCT) — confirmez un taux pour cette importation (écran Importation) ou laissez non déterminé.",
+                        LineNumber: line.LineNumber));
+                }
+            }
+
+            decimal totalAdditionalTaxesDzd = additionalTaxBreakdowns.Sum(t => t.TaxAmountDzd);
 
             // Résultat 1 (Section 25) : Coût / Total Droits et Taxes douaniers
             decimal totalLineDutiesAndTaxesDzd = CurrencyCalculator.RoundDzd(customsDutyDzd + totalAdditionalTaxesDzd + importVatDzd);
@@ -907,7 +1095,8 @@ public sealed class ImportCalculationOrchestrator
                 VatLegalArticleReference: regOutcome.VatRule?.LegalSource.ArticleReference,
                 VatJoraReference: regOutcome.VatRule?.LegalSource.JoraReference,
                 VatRegulatoryVersionCode: regOutcome.VatRule?.RegulatoryVersionCode,
-                StandardTaxApplicability: standardTaxApplicability);
+                StandardTaxApplicability: standardTaxApplicability,
+                VatRateOriginTag: vatRateOriginTag);
 
             // Résultat 2 (Section 26) : Coût d'acquisition et Coût de revient économique réel
             decimal feesInCustomsValueDzd = lineAllocations

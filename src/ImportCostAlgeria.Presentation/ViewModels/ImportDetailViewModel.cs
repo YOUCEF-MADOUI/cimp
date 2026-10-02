@@ -41,6 +41,7 @@ public sealed class ImportDetailViewModel : ObservableObject
     private decimal _totalValeurDouaneDzd;
     private decimal _totalDroitsDouaneDzd;
     private decimal _totalTvaDzd;
+    private decimal _totalAutresTaxesDzd;
     private decimal _totalFraisDzd;
     private string _exchangeRateInfo = string.Empty;
     private string _authorizationExchangeRateInfo = string.Empty;
@@ -113,7 +114,17 @@ public sealed class ImportDetailViewModel : ObservableObject
     public ObservableCollection<ImportFee> Fees { get; }
     public ObservableCollection<CalculationAnomaly> Anomalies { get; }
     public StandardFeeTemplate[] FeeTemplates { get; }
-    public FeeAllocationMethod[] FeeAllocationMethods { get; } = Enum.GetValues<FeeAllocationMethod>();
+    /// <summary>
+    /// Revue du 2026-10-02 (Section 19 — "La liste déroulante Méthode de répartition est vide") : expose
+    /// désormais les 5 méthodes réellement proposées en V1 (Section 35 : Par poids / Par volume ne sont
+    /// PAS proposées pour le moment, même si FeeAllocationMethod les conserve pour une évolution future).
+    /// Le bug racine (liste réellement vide à l'écran) venait du XAML : DataGridComboBoxColumn n'étant pas
+    /// un FrameworkElement, un binding ElementName/RelativeSource sur sa colonne ne se résout jamais — voir
+    /// ImportDetailView.xaml qui utilise désormais {x:Static} sur ImportFeeCatalog.AllocationMethodsForV1.
+    /// Cette propriété reste exposée pour toute autre utilisation (ex: tests, futurs écrans) qui bénéficie
+    /// bien d'un DataContext binding classique.
+    /// </summary>
+    public FeeAllocationMethod[] FeeAllocationMethods { get; } = ImportFeeCatalog.AllocationMethodsForV1.ToArray();
 
     public StandardFeeTemplate? SelectedFeeTemplate
     {
@@ -126,6 +137,8 @@ public sealed class ImportDetailViewModel : ObservableObject
     public decimal TotalValeurDouaneDzd { get => _totalValeurDouaneDzd; private set => SetField(ref _totalValeurDouaneDzd, value); }
     public decimal TotalDroitsDouaneDzd { get => _totalDroitsDouaneDzd; private set => SetField(ref _totalDroitsDouaneDzd, value); }
     public decimal TotalTvaDzd { get => _totalTvaDzd; private set => SetField(ref _totalTvaDzd, value); }
+    /// <summary>Section 23 : total des taxes additionnelles (CS, PRCT, TCS, DAPS...) distinct de la TVA et du DD.</summary>
+    public decimal TotalAutresTaxesDzd { get => _totalAutresTaxesDzd; private set => SetField(ref _totalAutresTaxesDzd, value); }
     public decimal TotalFraisDzd { get => _totalFraisDzd; private set => SetField(ref _totalFraisDzd, value); }
     public string ExchangeRateInfo { get => _exchangeRateInfo; private set => SetField(ref _exchangeRateInfo, value); }
     public string IncotermGuidance { get => _incotermGuidance; private set => SetField(ref _incotermGuidance, value); }
@@ -186,6 +199,36 @@ public sealed class ImportDetailViewModel : ObservableObject
     {
         get => _operation?.ManualAuthorizationExchangeRateOverride;
         set { _operation.ManualAuthorizationExchangeRateOverride = value; OnPropertyChanged(); RefreshAuthorizationExchangeRateInfo(); }
+    }
+
+    /// <summary>
+    /// Revue du 2026-10-02 (Section 15 — "PRCT/TCS introuvable : demander UNE FOIS pour tout l'import").
+    /// Taux PRCT confirmé manuellement pour CETTE importation, appliqué uniquement aux lignes dont le code
+    /// SH ne dispose d'aucune règle réglementaire PRCT officielle (voir ImportCalculationOrchestrator).
+    /// </summary>
+    public bool IsManualPrctMode
+    {
+        get => _operation?.UserConfirmedManualPrct ?? false;
+        set { _operation.UserConfirmedManualPrct = value; OnPropertyChanged(); OnPropertyChanged(nameof(ManualPrctRateValue)); }
+    }
+
+    public decimal? ManualPrctRateValue
+    {
+        get => _operation?.ManualPrctRatePercent;
+        set { _operation.ManualPrctRatePercent = value; OnPropertyChanged(); }
+    }
+
+    /// <summary>Même principe que <see cref="IsManualPrctMode"/>/<see cref="ManualPrctRateValue"/>, pour la TCS.</summary>
+    public bool IsManualTcsMode
+    {
+        get => _operation?.UserConfirmedManualTcs ?? false;
+        set { _operation.UserConfirmedManualTcs = value; OnPropertyChanged(); OnPropertyChanged(nameof(ManualTcsRateValue)); }
+    }
+
+    public decimal? ManualTcsRateValue
+    {
+        get => _operation?.ManualTcsRatePercent;
+        set { _operation.ManualTcsRatePercent = value; OnPropertyChanged(); }
     }
 
     public RelayCommand BackCommand { get; }
@@ -280,6 +323,19 @@ public sealed class ImportDetailViewModel : ObservableObject
     private void AddFeeFromTemplate()
     {
         var template = SelectedFeeTemplate ?? ImportFeeCatalog.StandardTemplates[0];
+
+        // Revue du 2026-10-02 (cas de référence D10 réel, Section 6 — CRITIQUE : éviter le double comptage
+        // du fret). En Incoterm CFR, le prix facturé inclut déjà le fret jusqu'au point convenu (voir
+        // IncotermDynamicFieldService, qui ne liste d'ailleurs PAS "FRET_INTERNATIONAL" comme champ requis
+        // pour CFR, contrairement à EXW/FOB). Si l'utilisateur ajoute quand même ce frais sous CFR, il est
+        // par défaut marqué "Déjà inclus dans le prix facturé" (jamais ajouté une seconde fois à la valeur
+        // en douane) plutôt que d'hériter silencieusement du traitement "Addition" prévu pour EXW/FOB.
+        // L'utilisateur reste libre de corriger ce traitement si ce fret est réellement un complément non
+        // compris dans le prix CFR — ImportCalculationOrchestrator.ValidateIncotermRequiredFees avertit de
+        // toute façon si un tel frais reste configuré en "Addition" sous CFR.
+        bool isCfrFreightAlreadyIncluded = _operation.Incoterm == IncotermCode.CFR
+            && template.CategoryCode.Contains("FRET", StringComparison.OrdinalIgnoreCase);
+
         Fees.Add(new ImportFee
         {
             FeeCategoryCode = template.CategoryCode,
@@ -287,8 +343,10 @@ public sealed class ImportDetailViewModel : ObservableObject
             Amount = 0m,
             CurrencyCode = _operation.MainCurrencyCode,
             AllocationMethod = template.SuggestedAllocationMethod,
-            IncludeInCustomsValue = template.DefaultIncludeInCustomsValue,
-            CustomsTreatment = template.DefaultCustomsTreatment,
+            IncludeInCustomsValue = isCfrFreightAlreadyIncluded ? false : template.DefaultIncludeInCustomsValue,
+            CustomsTreatment = isCfrFreightAlreadyIncluded
+                ? CustomsAdjustmentTreatment.IncludedInInvoicePrice
+                : template.DefaultCustomsTreatment,
             IncludeInCostOfGoods = template.DefaultIncludeInCostOfGoods
         });
     }
@@ -405,6 +463,7 @@ public sealed class ImportDetailViewModel : ObservableObject
             TotalValeurDouaneDzd = summary.TotalCustomsValueDzd;
             TotalDroitsDouaneDzd = summary.TotalCustomsDutyDzd;
             TotalTvaDzd = summary.TotalImportVatDzd;
+            TotalAutresTaxesDzd = summary.TotalAdditionalTaxesDzd;
             TotalFraisDzd = summary.TotalImportFeesDzd;
 
             _operationRepository.SaveOperation(_operation);

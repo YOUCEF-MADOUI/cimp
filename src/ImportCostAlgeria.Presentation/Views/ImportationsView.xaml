@@ -38,11 +38,15 @@
                 <Label Content="Fournisseur" />
                 <TextBox Text="{Binding SupplierName, UpdateSourceTrigger=PropertyChanged}" />
 
-                <Label Content="Pays d'expédition" />
+                <Label Content="Pays d'achat (pays du fournisseur/facture, optionnel)" />
+                <controls:CountrySearchBox SelectedIso2="{Binding PurchaseCountryIso2}"
+                                            Watermark="Rechercher le pays d'achat (ex : por -&gt; Portugal)..." />
+
+                <Label Content="Pays de provenance / premier destin (expédition)" />
                 <controls:CountrySearchBox SelectedIso2="{Binding ExportShippingCountryIso2}"
                                             Watermark="Rechercher le pays d'expédition (ex : chi -&gt; Chine, tur -&gt; Turquie)..." />
 
-                <Label Content="Pays d'origine par défaut (optionnel)" />
+                <Label Content="Pays d'origine de la marchandise par défaut (optionnel — distinct du pays d'achat)" />
                 <controls:CountrySearchBox SelectedIso2="{Binding DefaultOriginCountryIso2}"
                                             Watermark="Rechercher le pays d'origine (ex : alg -&gt; Algérie, fra -&gt; France)..." />
 

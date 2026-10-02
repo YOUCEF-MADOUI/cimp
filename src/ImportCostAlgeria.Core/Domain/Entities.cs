@@ -94,9 +94,19 @@ public enum RegulatoryRuleType
 
 public enum TaxableBaseType
 {
-    CustomsValueDzd,                            // Valeur en douane (assiette DD, DAPS...)
+    CustomsValueDzd,                            // Valeur en douane (assiette DD, DAPS, CS...)
     CustomsValuePlusDutiesAndTaxesExVatDzd,     // Art. 19 CTCA : Valeur en douane + Tous droits et taxes hors TVA
-    PhysicalQuantityOrWeight                    // Assiette spécifique (kg, litre, unité)
+    PhysicalQuantityOrWeight,                   // Assiette spécifique (kg, litre, unité)
+    /// <summary>
+    /// Revue du 2026-10-02 (cas de référence D10 réel) : Valeur en douane + taxes calculées AVANT la TVA
+    /// (ex: CS) + TVA elle-même. Observée pour le PRCT sur le D10 de référence (SARL HYMA TRADE) :
+    /// assiette article 1 = 2 079 857 (VD) + 62 395,71 (CS) + 407 028,01 (TVA) = 2 549 280,72, taxée à 2 %.
+    /// Une règle déclarant cette assiette est nécessairement calculée APRÈS la TVA par
+    /// ImportCalculationOrchestrator (voir le passage "taxes après TVA" de ExecuteCalculation) — jamais
+    /// imposée universellement à toutes les taxes additionnelles (chaque RegulatoryRule choisit librement
+    /// son CalculationBase parmi les valeurs de cet enum).
+    /// </summary>
+    CustomsValuePlusPriorTaxesPlusVatDzd
 }
 
 public enum DutyComparisonStatus
@@ -248,6 +258,16 @@ public sealed class ImportOperation
     public required string ImportNumber { get; set; }
     public required DateOnly ReferenceDate { get; set; }
     public required string SupplierName { get; set; }
+    /// <summary>
+    /// Revue du 2026-10-02 (cas de référence D10 réel) : pays d'achat / du fournisseur qui a émis la
+    /// facture (ex: Portugal dans le D10 SARL HYMA TRADE), STRICTEMENT distinct du pays d'origine de la
+    /// marchandise (<see cref="DefaultOriginCountryIso2"/>/<see cref="ImportLine.OriginCountryIso2"/>, ex:
+    /// Allemagne) et du pays de provenance/premier destin (<see cref="ExportShippingCountryIso2"/>, ex:
+    /// France). Purement informatif/traçabilité (facture, rapports) : n'est JAMAIS lu par
+    /// RegulatoryRuleEngine ni par ImportCalculationOrchestrator pour déterminer une règle douanière — seul
+    /// le pays d'ORIGINE réel de la marchandise peut ouvrir droit à un tarif préférentiel.
+    /// </summary>
+    public string? PurchaseCountryIso2 { get; set; }
     public string? DefaultOriginCountryIso2 { get; set; }
     /// <summary>
     /// Section 6 : Le pays d'expédition est saisi UNE SEULE FOIS au niveau de l'importation.
@@ -283,6 +303,19 @@ public sealed class ImportOperation
     /// réglementaire"). Null = utiliser le taux commercial officiel enregistré (si disponible).
     /// </summary>
     public decimal? ManualAuthorizationExchangeRateOverride { get; set; }
+    /// <summary>
+    /// Revue du 2026-10-02 (Section 15 — "PRCT introuvable → demande UNE FOIS pour l'import, pas par
+    /// article") : taux PRCT confirmé manuellement par l'utilisateur pour TOUTE cette importation,
+    /// utilisé UNIQUEMENT pour les lignes dont le code SH ne dispose d'AUCUNE règle réglementaire PRCT
+    /// publiée (ni applicable, ni explicitement non applicable). Ne modifie jamais la base réglementaire
+    /// permanente — reste une valeur propre à cette importation, tracée comme
+    /// <see cref="DataOriginTag.DonneeUtilisateur"/> dans le calcul.
+    /// </summary>
+    public decimal? ManualPrctRatePercent { get; set; }
+    public bool UserConfirmedManualPrct { get; set; }
+    /// <summary>Même principe que <see cref="ManualPrctRatePercent"/>, pour la Taxe de Contribution de Solidarité (TCS).</summary>
+    public decimal? ManualTcsRatePercent { get; set; }
+    public bool UserConfirmedManualTcs { get; set; }
     public required IncotermCode Incoterm { get; set; }
     public string CustomsRegimeCode { get; set; } = "DROIT_COMMUN_4000";
     public CustomsValuationMethod ValuationMethod { get; set; } = CustomsValuationMethod.TransactionValue_Art16Ter;
@@ -315,6 +348,29 @@ public sealed class ImportLine
     public string? OriginCountryIso2 { get; set; }
     public decimal? ExcelDutyRatePercent { get; set; }
     public bool UserConfirmedExcelDutyFallback { get; set; }
+    /// <summary>
+    /// Revue du 2026-10-02 (Section 12 — "La TVA reste à 0 et il n'est pas possible de la saisir") : taux
+    /// de TVA saisi/confirmé MANUELLEMENT par l'utilisateur, utilisé UNIQUEMENT lorsqu'aucune
+    /// <see cref="ImportCostAlgeria.RegulatoryEngine.RegulatoryRule"/> officielle de type TVA n'a été
+    /// trouvée pour cette ligne (jamais pour remplacer une règle officielle existante — la règle
+    /// réglementaire reste toujours prioritaire, comme pour <see cref="ExcelDutyRatePercent"/>/DD). Reste
+    /// null tant que l'utilisateur n'a rien saisi : dans ce cas, en l'absence de règle officielle, le
+    /// moteur de calcul NE DOIT JAMAIS afficher silencieusement 0 % — il bloque explicitement
+    /// ("TVA non déterminée") jusqu'à confirmation.
+    /// </summary>
+    public decimal? ManualVatRatePercent { get; set; }
+    /// <summary>
+    /// Vrai uniquement après confirmation EXPLICITE de l'utilisateur d'utiliser <see cref="ManualVatRatePercent"/>
+    /// (y compris pour confirmer un taux de 0 %, auquel cas <see cref="VatExemptionReasonFr"/> doit documenter
+    /// le motif d'exonération). Tant que ce indicateur reste faux, un taux manuel saisi mais non confirmé
+    /// n'est jamais appliqué au calcul.
+    /// </summary>
+    public bool UserConfirmedManualVatRate { get; set; }
+    /// <summary>
+    /// Motif d'exonération de TVA documenté par l'utilisateur lorsque <see cref="ManualVatRatePercent"/> = 0 %
+    /// est confirmé manuellement (Section 12 : "demander explicitement s'il s'agit d'une exonération").
+    /// </summary>
+    public string? VatExemptionReasonFr { get; set; }
     public decimal? LineGrossWeightKg { get; set; }
     public decimal? LineVolumeM3 { get; set; }
     public Dictionary<Guid, decimal> ManualFeeAllocationsDzd { get; init; } = new();

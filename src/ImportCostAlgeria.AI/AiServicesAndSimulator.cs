@@ -85,12 +85,21 @@ public sealed class ImportSimulatorService
             ImportNumber = $"{originalOperation.ImportNumber}-SIM",
             ReferenceDate = originalOperation.ReferenceDate,
             SupplierName = originalOperation.SupplierName,
+            PurchaseCountryIso2 = originalOperation.PurchaseCountryIso2,
             DefaultOriginCountryIso2 = originalOperation.DefaultOriginCountryIso2,
             ExportShippingCountryIso2 = originalOperation.ExportShippingCountryIso2,
             MainCurrencyCode = originalOperation.MainCurrencyCode,
             ManualExchangeRateOverride = overrides.ExchangeRateOverride ?? originalOperation.ManualExchangeRateOverride,
             Incoterm = overrides.IncotermOverride ?? originalOperation.Incoterm,
             CustomsRegimeCode = originalOperation.CustomsRegimeCode,
+            // Revue du 2026-10-02 (Section 15) : les confirmations manuelles PRCT/TCS de l'opération réelle
+            // doivent être reconduites dans la simulation "what-if" — sinon le simulateur afficherait des
+            // anomalies "donnée manquante" absentes de l'opération réelle, pour une simulation censée
+            // n'étudier que l'impact du fret/change/quantité, pas celui du régime réglementaire.
+            ManualPrctRatePercent = originalOperation.ManualPrctRatePercent,
+            UserConfirmedManualPrct = originalOperation.UserConfirmedManualPrct,
+            ManualTcsRatePercent = originalOperation.ManualTcsRatePercent,
+            UserConfirmedManualTcs = originalOperation.UserConfirmedManualTcs,
             ValuationMethod = originalOperation.ValuationMethod,
             ArrivalPortOrBorder = originalOperation.ArrivalPortOrBorder,
             TransportMode = originalOperation.TransportMode,
@@ -114,6 +123,9 @@ public sealed class ImportSimulatorService
                 OriginCountryIso2 = l.OriginCountryIso2,
                 ExcelDutyRatePercent = l.ExcelDutyRatePercent,
                 UserConfirmedExcelDutyFallback = l.UserConfirmedExcelDutyFallback,
+                ManualVatRatePercent = l.ManualVatRatePercent,
+                UserConfirmedManualVatRate = l.UserConfirmedManualVatRate,
+                VatExemptionReasonFr = l.VatExemptionReasonFr,
                 LineGrossWeightKg = l.LineGrossWeightKg,
                 LineVolumeM3 = l.LineVolumeM3
             }).ToList(),

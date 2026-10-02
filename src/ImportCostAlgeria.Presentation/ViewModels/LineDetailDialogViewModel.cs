@@ -2,6 +2,7 @@ using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Linq;
 using ImportCostAlgeria.CalculationEngine;
+using ImportCostAlgeria.Core.Domain;
 using ImportCostAlgeria.RegulatoryEngine;
 
 namespace ImportCostAlgeria.Presentation.ViewModels;
@@ -87,9 +88,26 @@ public sealed class LineDetailDialogViewModel
             ? $"Applicable ({Result.CustomsOutcome.CustomsDutyRatePercent:N2} %)"
             : ComparaisonDroitExcelVsReglementaire;
 
-    /// <summary>Statut d'applicabilité de la TVA à l'importation, même logique que pour le Droit de Douane.</summary>
-    public string TvaStatutFr =>
-        Result.CustomsOutcome.VatLegalArticleReference != null
-            ? $"Applicable ({Result.CustomsOutcome.VatRatePercent:N2} %)"
-            : "Donnée réglementaire manquante — validation requise";
+    /// <summary>
+    /// Statut d'applicabilité de la TVA à l'importation, même logique que pour le Droit de Douane. Revue du
+    /// 2026-10-02 (Section 12) : distingue désormais explicitement un taux confirmé MANUELLEMENT (en
+    /// l'absence de règle officielle) d'une règle officielle réelle — jamais un simple "0 %" silencieux.
+    /// </summary>
+    public string TvaStatutFr
+    {
+        get
+        {
+            if (Result.CustomsOutcome.VatLegalArticleReference != null)
+                return $"Applicable ({Result.CustomsOutcome.VatRatePercent:N2} %)";
+
+            if (Result.CustomsOutcome.VatRateOriginTag == DataOriginTag.DonneeUtilisateur)
+            {
+                return Result.CustomsOutcome.VatRatePercent == 0m
+                    ? $"⚠️ Exonération de TVA confirmée manuellement (motif : {Row.VatExemptionReasonFr ?? "non précisé"})"
+                    : $"⚠️ Taux de TVA saisi manuellement ({Result.CustomsOutcome.VatRatePercent:N2} %) — aucune règle officielle trouvée";
+            }
+
+            return "Donnée réglementaire manquante — validation requise";
+        }
+    }
 }

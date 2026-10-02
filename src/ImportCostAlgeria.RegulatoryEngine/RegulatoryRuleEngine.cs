@@ -297,6 +297,7 @@ public sealed class RegulatoryRuleEngine
     /// </summary>
     public static readonly IReadOnlyList<(string TaxCode, string TaxNameFr)> StandardAdditionalTaxCodes = new[]
     {
+        ("CS", "Contribution de Solidarité (CS)"),
         ("PRCT", "Précompte à l'importation (PRCT)"),
         ("TCS", "Taxe de Contribution de Solidarité (TCS)"),
         ("DAPS", "Droit Additionnel Provisoire de Sauvegarde (DAPS)")

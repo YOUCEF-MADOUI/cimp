@@ -450,6 +450,7 @@ public sealed class V1CompleteTestSuite
         var rules = new[]
         {
             new RegulatoryRule { Code = "DD-1", RegulatoryVersionCode = "2026.01", RuleType = RegulatoryRuleType.CustomsDuty, TaxCode = "DD", TaxNameFr = "Droit de Douane", HsCode10 = hsCode, RatePercent = 15.0m, CalculationBase = TaxableBaseType.CustomsValueDzd, ValidFrom = new DateOnly(2026, 1, 1), LegalSource = OfficialJoraSource, Status = RegulatoryRuleStatus.PublishedNewVersion, ValidatedByAdminUserId = AdminId },
+            new RegulatoryRule { Code = "CS-1", RegulatoryVersionCode = "2026.01", RuleType = RegulatoryRuleType.SpecificTax, TaxCode = "CS", TaxNameFr = "Contribution de Solidarité", HsCode10 = hsCode, RatePercent = 3.0m, CalculationBase = TaxableBaseType.CustomsValueDzd, ValidFrom = new DateOnly(2026, 1, 1), LegalSource = OfficialJoraSource, Status = RegulatoryRuleStatus.PublishedNewVersion, ValidatedByAdminUserId = AdminId },
             new RegulatoryRule { Code = "PRCT-1", RegulatoryVersionCode = "2026.01", RuleType = RegulatoryRuleType.SpecificTax, TaxCode = "PRCT", TaxNameFr = "Précompte à l'importation", HsCode10 = hsCode, RatePercent = 2.0m, CalculationBase = TaxableBaseType.CustomsValueDzd, ValidFrom = new DateOnly(2026, 1, 1), LegalSource = OfficialJoraSource, Status = RegulatoryRuleStatus.PublishedNewVersion, ValidatedByAdminUserId = AdminId },
             new RegulatoryRule { Code = "TCS-1", RegulatoryVersionCode = "2026.01", RuleType = RegulatoryRuleType.SpecificTax, TaxCode = "TCS", TaxNameFr = "Taxe de Contribution de Solidarité", HsCode10 = hsCode, RatePercent = 2.0m, CalculationBase = TaxableBaseType.CustomsValueDzd, ValidFrom = new DateOnly(2026, 1, 1), LegalSource = OfficialJoraSource, Status = RegulatoryRuleStatus.PublishedNewVersion, ValidatedByAdminUserId = AdminId },
             new RegulatoryRule { Code = "TVA-1", RegulatoryVersionCode = "2026.01", RuleType = RegulatoryRuleType.Vat, TaxCode = "TVA", TaxNameFr = "Taxe sur la Valeur Ajoutée", HsCode10 = hsCode, RatePercent = 19.0m, CalculationBase = TaxableBaseType.CustomsValuePlusDutiesAndTaxesExVatDzd, ValidFrom = new DateOnly(2026, 1, 1), LegalSource = OfficialJoraSource, Status = RegulatoryRuleStatus.PublishedNewVersion, ValidatedByAdminUserId = AdminId }
@@ -461,12 +462,15 @@ public sealed class V1CompleteTestSuite
         Assert.True(outcome.IsDetermined);
         Assert.Equal(15.0m, outcome.CustomsDutyRule!.RatePercent);
         Assert.Equal(19.0m, outcome.VatRule!.RatePercent);
-        Assert.Equal(2, outcome.AdditionalTaxRules.Count);
+        // Revue du 2026-10-02 (cas D10) : CS a rejoint PRCT et TCS comme taxe additionnelle "standard".
+        Assert.Equal(3, outcome.AdditionalTaxRules.Count);
+        Assert.Contains(outcome.AdditionalTaxRules, r => r.TaxCode == "CS" && r.RatePercent == 3.0m);
         Assert.Contains(outcome.AdditionalTaxRules, r => r.TaxCode == "PRCT" && r.RatePercent == 2.0m);
         Assert.Contains(outcome.AdditionalTaxRules, r => r.TaxCode == "TCS" && r.RatePercent == 2.0m);
 
         var report = RegulatoryRuleEngine.BuildStandardTaxApplicabilityReport(outcome, RegulatoryRuleEngine.StandardAdditionalTaxCodes);
-        Assert.Equal(3, report.Count); // PRCT, TCS, DAPS
+        Assert.Equal(4, report.Count); // CS, PRCT, TCS, DAPS
+        Assert.Equal(TaxApplicabilityKind.Applicable, report.Single(r => r.TaxCode == "CS").Kind);
         Assert.Equal(TaxApplicabilityKind.Applicable, report.Single(r => r.TaxCode == "PRCT").Kind);
         Assert.Equal(TaxApplicabilityKind.Applicable, report.Single(r => r.TaxCode == "TCS").Kind);
         Assert.Equal(TaxApplicabilityKind.DonneeManquante, report.Single(r => r.TaxCode == "DAPS").Kind);

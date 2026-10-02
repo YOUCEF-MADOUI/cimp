@@ -74,6 +74,32 @@ public sealed class ImportLineRowViewModel : ObservableObject
         set { Line.LineGrossWeightKg = value; OnPropertyChanged(); }
     }
 
+    /// <summary>
+    /// Revue du 2026-10-02 (Section 12 — la TVA ne doit jamais rester silencieusement à 0 %) : taux de TVA
+    /// saisi manuellement, utilisé UNIQUEMENT si aucune règle réglementaire officielle n'est trouvée pour
+    /// cette ligne (jamais pour remplacer une règle officielle existante — même principe que
+    /// <see cref="ExcelDutyRatePercent"/>/DD).
+    /// </summary>
+    public decimal? ManualVatRatePercent
+    {
+        get => Line.ManualVatRatePercent;
+        set { Line.ManualVatRatePercent = value; OnPropertyChanged(); }
+    }
+
+    /// <summary>Confirmation explicite requise avant d'appliquer <see cref="ManualVatRatePercent"/> (y compris pour confirmer une exonération à 0 %).</summary>
+    public bool UserConfirmedManualVatRate
+    {
+        get => Line.UserConfirmedManualVatRate;
+        set { Line.UserConfirmedManualVatRate = value; OnPropertyChanged(); }
+    }
+
+    /// <summary>Motif d'exonération TVA (obligatoire si un taux manuel de 0 % est confirmé).</summary>
+    public string? VatExemptionReasonFr
+    {
+        get => Line.VatExemptionReasonFr;
+        set { Line.VatExemptionReasonFr = value; OnPropertyChanged(); }
+    }
+
     public decimal? LineVolumeM3
     {
         get => Line.LineVolumeM3;
