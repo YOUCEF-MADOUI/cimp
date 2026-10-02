@@ -441,7 +441,7 @@ public sealed class ImportDetailViewModel : ObservableObject
     public RelayCommand<ImportLineRowViewModel> ConfirmHsCommand { get; }
     public RelayCommand<ImportLineRowViewModel> ViewDetailCommand { get; }
     public RelayCommand AddFeeCommand { get; }
-    public RelayCommand<ImportFee> RemoveFeeCommand { get; }
+    public RelayCommand<FeeRowViewModel> RemoveFeeCommand { get; }
 
     private void RefreshExchangeRateInfo()
     {
