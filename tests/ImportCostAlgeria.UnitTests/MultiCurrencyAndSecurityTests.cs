@@ -795,6 +795,77 @@ public sealed class MultiCurrencyAndSecurityTests
         Assert.Null(reAuthWithOldPassword);
     }
 
+    // ------------------------------------------------------------------
+    // Régression (correction du premier démarrage — "mot de passe aléatoire jamais récupérable") :
+    // App.xaml.cs ouvre désormais automatiquement la session administrateur au tout premier démarrage,
+    // SANS jamais demander ni afficher le mot de passe aléatoire généré (voir App.OnStartup /
+    // App.InitializeDatabase, qui ne sont pas testables ici directement car WPF — ce projet de tests ne
+    // référence pas ImportCostAlgeria.Presentation). Ce test couvre, au niveau donné (exactement ce que lit
+    // App.xaml.cs pour décider du contournement), les deux garanties essentielles :
+    //   1) juste après la création de la base, le compte administrateur peut être retrouvé par son seul nom
+    //      d'utilisateur (FindByUsername), SANS AUCUN mot de passe — exactement l'opération effectuée par
+    //      le contournement du premier démarrage — et porte bien MustChangePasswordOnNextLogin = true, ce
+    //      qui déclenche obligatoirement l'écran "Sécurisez votre compte administrateur" ensuite ;
+    //   2) un second appel à EnsureDatabaseReadyWithSeed (= second démarrage de l'application, même base)
+    //      ne recrée JAMAIS de nouveau compte et ne renseigne plus aucun nom d'utilisateur "premier
+    //      démarrage" : le contournement sans mot de passe ne peut donc jamais se reproduire après le tout
+    //      premier lancement (LoginWindow redevient obligatoire, Section "jamais de connexion automatique
+    //      non sécurisée").
+    // ------------------------------------------------------------------
+
+    [Fact]
+    public void FirstStartup_ShouldAllowRetrievingAdminAccountByUsernameAlone_WithoutAnyPassword_OnlyOnTheVeryFirstRun()
+    {
+        using var factory = new SingleFileDbContextFactory();
+        using (var ctx = factory.CreateGlobal())
+        {
+            ctx.Database.EnsureCreated();
+        }
+
+        // 1) Premier démarrage (base vide) : création automatique du compte administrateur.
+        string? firstRunUsername;
+        string? firstRunPassword;
+        using (var ctx = factory.CreateGlobal())
+        {
+            (_, firstRunUsername, firstRunPassword) = DbContextFactory.EnsureDatabaseReadyWithSeed(ctx);
+        }
+
+        Assert.Equal("admin", firstRunUsername);
+        Assert.NotNull(firstRunPassword);
+
+        var userRepository = new UserRepository(factory);
+
+        // 2) Exactement l'opération effectuée par App.OnStartup pour le contournement du premier démarrage :
+        //    retrouver le compte PAR SON SEUL NOM D'UTILISATEUR, sans fournir ni vérifier aucun mot de
+        //    passe (TryAuthenticate n'est PAS appelé ici, volontairement).
+        var adminAccount = userRepository.FindByUsername(firstRunUsername!);
+        Assert.NotNull(adminAccount);
+        Assert.True(adminAccount!.IsActive);
+        Assert.Equal(UserRole.Administrateur, adminAccount.Role);
+
+        // 3) MustChangePasswordOnNextLogin doit être vrai : c'est ce qui force l'affichage obligatoire de
+        //    "Sécurisez votre compte administrateur" (ChangePasswordWindow) immédiatement après l'ouverture
+        //    automatique de cette session, avant tout accès à MainWindow.
+        Assert.True(adminAccount.MustChangePasswordOnNextLogin);
+
+        // 4) Second démarrage (même base, désormais non vide) : AUCUN nouveau compte n'est créé, et surtout
+        //    plus aucun nom d'utilisateur "premier démarrage" n'est renseigné — le contournement sans mot
+        //    de passe ne peut donc jamais se reproduire : App.xaml.cs retombera systématiquement sur
+        //    LoginWindow (utilisateur + mot de passe requis).
+        using (var ctx = factory.CreateGlobal())
+        {
+            var (createdOnSecondRun, secondRunUsername, secondRunPassword) =
+                DbContextFactory.EnsureDatabaseReadyWithSeed(ctx);
+
+            Assert.False(createdOnSecondRun);
+            Assert.Null(secondRunUsername);
+            Assert.Null(secondRunPassword);
+        }
+
+        // 5) Le compte reste inchangé après ce second appel (toujours le même, pas de doublon créé).
+        Assert.Single(userRepository.GetAll());
+    }
+
     [Fact]
     public void PublishNewRate_ForDifferentQuoteCurrency_ShouldNotCloseUnrelatedCurrencyPairHistory()
     {

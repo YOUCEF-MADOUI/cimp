@@ -1096,6 +1096,24 @@ public sealed class ImportCalculationOrchestrator
                 comparisonStatus = DutyComparisonStatus.ExcelFallbackConfirmedByUser;
                 comparisonLabel = $"⚠️ Taux Excel ({effectiveDutyRate:F2} %) utilisé sur confirmation explicite de l'utilisateur";
                 customsDutyRateOriginTag = DataOriginTag.DonneeUtilisateur;
+
+                // Revue du 2026-10-05 (Bug 2 — vérification de la convention de pourcentage, "NE PAS
+                // DEVINER") : CIMP n'effectue AUCUNE normalisation automatique d'une éventuelle fraction
+                // Excel (ex : une cellule au format Pourcentage dont la valeur interne est 0.05 pour un
+                // affichage "5 %") — voir ExcelImporterService. Un taux Excel strictement compris entre 0 et
+                // 1 point de pourcentage est donc soit un taux réellement infime (rare pour un Droit de
+                // Douane), soit le signe d'une fraction Excel non convertie par l'utilisateur avant l'import
+                // (0.05 saisi/exporté au lieu de 5). Dans le doute, un AVERTISSEMENT explicite et traçable
+                // est levé ici plutôt qu'une correction silencieuse potentiellement erronée.
+                if (effectiveDutyRate > 0m && effectiveDutyRate < 1m)
+                {
+                    anomalies.Add(new CalculationAnomaly(
+                        AnomalySeverity.Avertissement,
+                        "EXCEL_DUTY_RATE_SUSPICIOUSLY_LOW",
+                        $"⚠️ Ligne {line.LineNumber} ({line.ProductReference}) : le Droit de Douane Excel utilisé ({effectiveDutyRate:F2} %) est anormalement faible. Vérifiez que la colonne Excel contient bien un pourcentage en points (ex : « 5 » ou « 5% » pour 5 %) et non une fraction (« 0.05 »), qui serait interprétée ici comme 0,05 % et non 5 %.",
+                        LineNumber: line.LineNumber,
+                        ActualValue: $"{effectiveDutyRate:F2}%"));
+                }
             }
             else if (useDefaultRates)
             {

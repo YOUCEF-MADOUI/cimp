@@ -222,6 +222,15 @@
                             <!-- donnée (rien n'est supprimé du modèle, uniquement masqué à l'affichage). -->
                             <DataGridTextColumn Header="Droit Excel %" Binding="{Binding ExcelDutyRatePercent, Converter={StaticResource FlexibleDecimalConverter}}" Width="85"
                                                  Visibility="{Binding Data.HasAnyExcelDutyRate, Source={StaticResource Proxy}, Converter={StaticResource BoolToVisibilityConverter}}" />
+                            <!-- Correction du 2026-10-05 (Bug 2) : case à cocher PAR LIGNE permettant de confirmer -->
+                            <!-- (ou d'annuler individuellement) l'utilisation du Droit Excel ci-dessus comme repli -->
+                            <!-- DD pour cet article précis — voir aussi le bouton de confirmation GLOBALE pour toute -->
+                            <!-- l'importation dans l'onglet "Options". Sans effet si une règle réglementaire -->
+                            <!-- officielle existe pour l'article (toujours prioritaire). -->
+                            <DataGridCheckBoxColumn Header="DD Excel confirmé" Binding="{Binding UserConfirmedExcelDutyFallback}" Width="90"
+                                                     Visibility="{Binding Data.HasAnyExcelDutyRate, Source={StaticResource Proxy}, Converter={StaticResource BoolToVisibilityConverter}}" />
+                            <DataGridTextColumn Header="Statut DD" Binding="{Binding DutyComparisonLabel}" Width="220" IsReadOnly="True"
+                                                 Visibility="{Binding Data.HasAnyExcelDutyRate, Source={StaticResource Proxy}, Converter={StaticResource BoolToVisibilityConverter}}" />
                             <DataGridTextColumn Header="Statut IA" Binding="{Binding AiHsSummary}" Width="140" IsReadOnly="True"
                                                  Visibility="{Binding Data.HasAnyAiProposedHs, Source={StaticResource Proxy}, Converter={StaticResource BoolToVisibilityConverter}}" />
                             <DataGridTemplateColumn Header="SH (IA)" Width="70">
@@ -510,6 +519,22 @@
                     <StackPanel Orientation="Horizontal" Margin="0,4,0,0" Visibility="{Binding IsManualTcsMode, Converter={StaticResource BoolToVisibilityConverter}}">
                         <Label Content="Taux TCS manuel (%) :" />
                         <TextBox Text="{Binding ManualTcsRateValue, UpdateSourceTrigger=LostFocus, Converter={StaticResource FlexibleDecimalConverter}}" Width="80" />
+                    </StackPanel>
+
+                    <!-- Correction du 2026-10-05 (Bug 2 — "Droit de douane importé depuis Excel non utilisé") : -->
+                    <!-- section visible uniquement si au moins un article de cette importation possède un -->
+                    <!-- Droit de douane importé depuis Excel (colonne "Droit Excel %"). Permet de confirmer, EN -->
+                    <!-- UNE SEULE FOIS pour toute l'importation (jamais de popup répétitif par article), -->
+                    <!-- l'utilisation de ce taux Excel comme repli DD — uniquement pour les articles sans règle -->
+                    <!-- réglementaire officielle (toujours prioritaire). Un ajustement fin reste possible article -->
+                    <!-- par article via la colonne "DD Excel confirmé" du tableau. -->
+                    <StackPanel Visibility="{Binding HasAnyExcelDutyRate, Converter={StaticResource BoolToVisibilityConverter}}">
+                        <Separator Margin="0,12,0,12" />
+                        <TextBlock Text="Droit de douane (DD) provenant du fichier Excel" FontWeight="Bold" FontSize="14" Margin="0,0,0,4" />
+                        <TextBlock TextWrapping="Wrap" Margin="0,0,0,8"
+                                   Text="Un ou plusieurs articles de cette importation possèdent un Droit de douane (DD) importé depuis le fichier Excel (colonne « Droit Excel % »). Si aucune règle réglementaire officielle n'est publiée pour le code SH d'un article, confirmez ici l'utilisation de ce taux Excel pour TOUTE l'importation (une règle officielle reste toujours prioritaire si elle existe)." />
+                        <Button Content="Utiliser le Droit de douane provenant du fichier Excel pour toute l'importation"
+                                Command="{Binding ConfirmUseExcelDutyForAllLinesCommand}" HorizontalAlignment="Left" Padding="6,2" />
                     </StackPanel>
 
                     <Separator Margin="0,12,0,12" />

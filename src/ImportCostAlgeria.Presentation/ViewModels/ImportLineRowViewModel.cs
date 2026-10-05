@@ -97,6 +97,23 @@ public sealed class ImportLineRowViewModel : ObservableObject
         set { Line.ExcelDutyRatePercent = value; OnPropertyChanged(); }
     }
 
+    /// <summary>
+    /// Correction du 2026-10-05 (Bug 2 — "Droit de douane importé depuis Excel non utilisé") : confirmation
+    /// EXPLICITE de l'utilisateur d'utiliser <see cref="ExcelDutyRatePercent"/> comme taux de Droit de
+    /// Douane (DD) de REPLI pour CETTE ligne, UNIQUEMENT lorsqu'aucune règle réglementaire officielle n'est
+    /// trouvée pour son code SH (une règle officielle reste TOUJOURS prioritaire — voir
+    /// ImportCalculationOrchestrator, inchangé par cette correction). Avant cette correction, ce champ
+    /// n'était exposé nulle part dans l'interface : il restait donc toujours à "false" par défaut et le
+    /// repli Excel n'était jamais atteignable, même lorsque l'utilisateur le souhaitait (d'où "Total DD"
+    /// restant à 0 malgré un "Droit Excel %" affiché correctement). Peut aussi être positionné en une seule
+    /// fois pour toute l'importation via <see cref="ImportDetailViewModel.ConfirmUseExcelDutyForAllLinesCommand"/>.
+    /// </summary>
+    public bool UserConfirmedExcelDutyFallback
+    {
+        get => Line.UserConfirmedExcelDutyFallback;
+        set { Line.UserConfirmedExcelDutyFallback = value; OnPropertyChanged(); }
+    }
+
     public decimal? LineGrossWeightKg
     {
         get => Line.LineGrossWeightKg;
@@ -196,6 +213,7 @@ public sealed class ImportLineRowViewModel : ObservableObject
                 OnPropertyChanged(nameof(AuthorizationCurrencyLabel));
                 OnPropertyChanged(nameof(AuthorizationUnitPrice));
                 OnPropertyChanged(nameof(AuthorizationTotalAmount));
+                OnPropertyChanged(nameof(DutyComparisonLabel));
             }
         }
     }
@@ -213,6 +231,15 @@ public sealed class ImportLineRowViewModel : ObservableObject
     public decimal? ValeurDouaniereDzd => Result?.CustomsOutcome.CustomsValueDzd;
     public decimal? DroitDouaneDzd => Result?.CustomsOutcome.CustomsDutyAmountDzd;
     public decimal? TvaDzd => Result?.CustomsOutcome.ImportVatAmountDzd;
+
+    /// <summary>
+    /// Correction du 2026-10-05 (Bug 2) : explique, en clair, QUELLE source de taux DD a réellement été
+    /// utilisée pour calculer <see cref="DroitDouaneDzd"/> (règle réglementaire officielle, repli Excel
+    /// confirmé par l'utilisateur, valeur par défaut de l'importation, ou non déterminé) — déjà calculé par
+    /// le moteur (<see cref="ImportCostAlgeria.CalculationEngine.CustomsOutcome.ComparisonLabelFr"/>) mais
+    /// jusqu'ici jamais affiché. Null tant qu'aucun calcul n'a encore été exécuté pour cette ligne.
+    /// </summary>
+    public string? DutyComparisonLabel => Result?.CustomsOutcome.ComparisonLabelFr;
 
     // Revue du 2026-10-02 (REFONTE INTERFACE, Section 18) : CS/PRCT/TCS affichées comme colonnes
     // individuelles dans le tableau des articles (plus de colonne "Autres taxes" agrégée), même source de

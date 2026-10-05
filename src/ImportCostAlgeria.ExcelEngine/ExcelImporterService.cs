@@ -188,6 +188,19 @@ public sealed class ExcelImporterService
             string currency = FindValue(row, CanonicalExcelField.Currency) ?? defaultCurrencyCode;
             string? hsCode = FindValue(row, CanonicalExcelField.HsCode);
             string? origin = FindValue(row, CanonicalExcelField.OriginCountry) ?? defaultOriginIso2;
+            // Revue du 2026-10-05 (Bug 2 — vérification de la convention de pourcentage, "NE PAS DEVINER") :
+            // la valeur brute lue dans la colonne Excel "DD" est stockée TELLE QUELLE, en points de
+            // pourcentage directement exploitables (ex : "15" ou "15%" -> 15.0 -> 15 %), SANS normalisation
+            // ×100 d'une éventuelle fraction Excel (ex : "0.15" reste 0.15, PAS 15). Décision justifiée par
+            // le code existant, pas par supposition : ImportLine.ExcelDutyRatePercent est déjà documenté et
+            // testé (voir V1CompleteTestSuite.cs) comme exprimé directement en points de pourcentage
+            // (10.0m = 10 %, 5.0m = 5 %), et ImportCalculationOrchestrator applique toujours
+            // "valeur × (ExcelDutyRatePercent / 100)" sans transformation préalable — aucune partie du projet
+            // ne traite actuellement une valeur Excel "0.05" comme signifiant "5 %". Si un fichier Excel
+            // fournit un taux sous forme de fraction (colonne au format Pourcentage Excel, valeur interne
+            // 0.05 pour afficher "5 %"), il doit être saisi/exporté sous la forme "5" ou "5%" dans la colonne
+            // DD pour être interprété correctement par CIMP — voir l'avertissement explicite déclenché par
+            // ImportCalculationOrchestrator lorsqu'un taux Excel anormalement faible (< 1 %) est utilisé.
             decimal? excelDuty = ParseNullableDecimal(FindValue(row, CanonicalExcelField.ExcelDutyRate));
             decimal? grossWeight = ParseNullableDecimal(FindValue(row, CanonicalExcelField.GrossWeightKg));
             decimal? volume = ParseNullableDecimal(FindValue(row, CanonicalExcelField.VolumeM3));
