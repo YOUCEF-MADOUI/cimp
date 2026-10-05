@@ -379,16 +379,23 @@ public sealed class RegulatoryAssistantEngine
         var statements = new List<AssistantTaggedStatement>();
 
         // 1. « Montre-moi tous les articles dont le taux Excel est différent du taux réglementaire. »
+        // Revue du 2026-10-05 ("DD Excel prioritaire par défaut") : le statut historique "Difference"
+        // (ancienne règle où le réglementaire gagnait toujours) n'est plus jamais produit par le moteur de
+        // calcul — le statut équivalent sous la nouvelle logique (Excel prioritaire par défaut, mais
+        // différent de la proposition IA) est ExcelPriorityDiffersFromAi. On inclut également le cas
+        // AiForcedByUserOverridingExcel (une différence existait, l'utilisateur a choisi la proposition IA)
+        // pour que cette requête reste exhaustive.
         if (q.Contains("DIFFÉRENT") || q.Contains("DIFFERENT") || q.Contains("EXCEL"))
         {
             var diffs = currentCalculation.LineResults
-                .Where(l => l.CustomsOutcome.ExcelVsRegulatoryComparison == DutyComparisonStatus.Difference)
+                .Where(l => l.CustomsOutcome.ExcelVsRegulatoryComparison == DutyComparisonStatus.ExcelPriorityDiffersFromAi
+                         || l.CustomsOutcome.ExcelVsRegulatoryComparison == DutyComparisonStatus.AiForcedByUserOverridingExcel)
                 .ToList();
 
             statements.Add(new AssistantTaggedStatement(
                 DataOriginTag.CalculDuLogiciel,
                 "CALCUL DU LOGICIEL",
-                $"Analyse comparative effectuée sur {currentCalculation.LineResults.Count} ligne(s) : {diffs.Count} article(s) présentent une différence entre le droit Excel et le droit réglementaire."));
+                $"Analyse comparative effectuée sur {currentCalculation.LineResults.Count} ligne(s) : {diffs.Count} article(s) présentent une différence entre le droit Excel et la proposition IA (réglementaire)."));
 
             foreach (var d in diffs)
             {
@@ -400,7 +407,7 @@ public sealed class RegulatoryAssistantEngine
                 statements.Add(new AssistantTaggedStatement(
                     DataOriginTag.DonneeOfficielle,
                     "DONNÉE OFFICIELLE",
-                    $"Ligne {d.LineNumber} (Code SH {srcLine.HsCodeConfirmed10}, Origine {srcLine.OriginCountryIso2}) : Taux réglementaire applicable au {operation.ReferenceDate:dd/MM/yyyy} = {d.CustomsOutcome.CustomsDutyRatePercent:F2} % ({FormatLegalCitation(d.CustomsOutcome.CustomsDutyLegalArticleReference, d.CustomsOutcome.CustomsDutyJoraReference)})."));
+                    $"Ligne {d.LineNumber} (Code SH {srcLine.HsCodeConfirmed10}, Origine {srcLine.OriginCountryIso2}) : Proposition DD IA (réglementaire) au {operation.ReferenceDate:dd/MM/yyyy} = {d.CustomsOutcome.AiProposedDutyRatePercent:F2} % — taux effectivement appliqué au calcul : {d.CustomsOutcome.CustomsDutyRatePercent:F2} % ({d.CustomsOutcome.ComparisonLabelFr})."));
             }
 
             return new RegulatoryAssistantResponse(questionFr, statements);
@@ -513,11 +520,27 @@ public sealed class RegulatoryAssistantEngine
         }
 
         // 5. « Pourquoi le droit de douane de cet article est de 15 % ? » ou question générale sur le calcul
+        // Revue du 2026-10-05 ("DD Excel prioritaire par défaut") : le taux effectivement appliqué
+        // (CustomsDutyRatePercent) peut désormais provenir du DD Excel (DonneeUtilisateur), d'une proposition
+        // IA/réglementaire (DonneeOfficielle), du taux par défaut de l'importation (ValeurParDefautImportation)
+        // ou rester non déterminé (CalculDuLogiciel) — le tag ET le libellé affichés doivent refléter
+        // dynamiquement CustomsDutyRateOriginTag plutôt que de présenter à tort toute valeur comme une
+        // "DONNÉE OFFICIELLE" (ancien comportement, incorrect lorsque le DD Excel l'emporte).
         var line1 = currentCalculation.LineResults.First();
+        (DataOriginTag dutyTag, string dutyTagLabel) = line1.CustomsOutcome.CustomsDutyRateOriginTag switch
+        {
+            DataOriginTag.DonneeOfficielle => (DataOriginTag.DonneeOfficielle, "DONNÉE OFFICIELLE"),
+            DataOriginTag.DonneeUtilisateur => (DataOriginTag.DonneeUtilisateur, "DONNÉE UTILISATEUR"),
+            DataOriginTag.ValeurParDefautImportation => (DataOriginTag.ValeurParDefautImportation, "VALEUR PAR DÉFAUT (IMPORTATION)"),
+            _ => (DataOriginTag.CalculDuLogiciel, "CALCUL DU LOGICIEL")
+        };
+        string dutyExplanationFr = line1.CustomsOutcome.CustomsDutyRateOriginTag == DataOriginTag.DonneeOfficielle
+            ? $"le droit de douane de {line1.CustomsOutcome.CustomsDutyRatePercent:F2} % ({FormatLegalCitation(line1.CustomsOutcome.CustomsDutyLegalArticleReference, line1.CustomsOutcome.CustomsDutyJoraReference)}) découle de la proposition IA/réglementaire"
+            : $"le droit de douane de {line1.CustomsOutcome.CustomsDutyRatePercent:F2} % provient de : {line1.CustomsOutcome.ComparisonLabelFr}";
         statements.Add(new AssistantTaggedStatement(
-            DataOriginTag.DonneeOfficielle,
-            "DONNÉE OFFICIELLE",
-            $"Pour l'article {line1.ProductReference}, le droit de douane de {line1.CustomsOutcome.CustomsDutyRatePercent:F2} % ({FormatLegalCitation(line1.CustomsOutcome.CustomsDutyLegalArticleReference, line1.CustomsOutcome.CustomsDutyJoraReference)}) et la TVA de {line1.CustomsOutcome.VatRatePercent:F2} % ({FormatLegalCitation(line1.CustomsOutcome.VatLegalArticleReference, line1.CustomsOutcome.VatJoraReference)}) découlent de la réglementation douanière en vigueur au {operation.ReferenceDate:dd/MM/yyyy}."));
+            dutyTag,
+            dutyTagLabel,
+            $"Pour l'article {line1.ProductReference}, {dutyExplanationFr} ; la TVA de {line1.CustomsOutcome.VatRatePercent:F2} % ({FormatLegalCitation(line1.CustomsOutcome.VatLegalArticleReference, line1.CustomsOutcome.VatJoraReference)}) découle de la réglementation douanière en vigueur au {operation.ReferenceDate:dd/MM/yyyy}."));
         statements.Add(new AssistantTaggedStatement(
             DataOriginTag.CalculDuLogiciel,
             "CALCUL DU LOGICIEL",

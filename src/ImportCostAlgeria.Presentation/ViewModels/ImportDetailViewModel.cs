@@ -146,12 +146,6 @@ public sealed class ImportDetailViewModel : ObservableObject
         ExportPdfCommand = new RelayCommand(ExportPdf);
         ConfirmHsCommand = new RelayCommand<ImportLineRowViewModel>(OpenHsConfirmDialog);
         ViewDetailCommand = new RelayCommand<ImportLineRowViewModel>(OpenLineDetailDialog);
-        // Correction du 2026-10-05 (Bug 2 — "Droit de douane importé depuis Excel non utilisé") :
-        // confirmation UNIQUE pour toute l'importation (évite une confirmation répétitive par article,
-        // conformément au même principe déjà utilisé pour PRCT/TCS ci-dessous). N'affecte QUE les lignes
-        // qui possèdent réellement un Droit Excel importé (ImportLine.ExcelDutyRatePercent) ; reste sans
-        // effet sur une règle réglementaire officielle, toujours prioritaire dans le moteur de calcul.
-        ConfirmUseExcelDutyForAllLinesCommand = new RelayCommand(ConfirmUseExcelDutyForAllLines);
         AddFeeCommand = new RelayCommand(AddFeeFromTemplate);
         RemoveFeeCommand = new RelayCommand<FeeRowViewModel>(RemoveFee);
         UndoCommand = new RelayCommand(() => UndoRedo.Undo(), () => UndoRedo.CanUndo);
@@ -619,26 +613,11 @@ public sealed class ImportDetailViewModel : ObservableObject
         OnPropertyChanged(nameof(AuthorizationCurrencySymbol));
     }
 
-    /// <summary>
-    /// Correction du 2026-10-05 (Bug 2 — "Droit de douane importé depuis Excel non utilisé par le moteur
-    /// de calcul") : confirme, EN UNE SEULE FOIS pour toute l'importation, l'utilisation du Droit de Douane
-    /// (DD) provenant du fichier Excel comme taux de REPLI pour chaque article qui en possède un
-    /// (<see cref="ImportLineRowViewModel.ExcelDutyRatePercent"/>). N'écrase jamais une règle réglementaire
-    /// officielle : <see cref="ImportCostAlgeria.CalculationEngine.ImportCalculationOrchestrator"/> continue
-    /// de donner systématiquement la priorité à une règle officielle lorsqu'elle existe pour la ligne — ceci
-    /// ne fait qu'autoriser le repli Excel pour les lignes où AUCUNE règle officielle n'est trouvée (le repli
-    /// restait auparavant totalement inatteignable depuis l'interface, d'où "Total DD" figé à 0). Les lignes
-    /// sans Droit Excel importé ne sont pas concernées. Un nouveau calcul (bouton "Calculer") reste
-    /// nécessaire ensuite pour répercuter la confirmation sur les résultats, comme pour toute autre
-    /// modification des données d'entrée.
-    /// </summary>
-    private void ConfirmUseExcelDutyForAllLines()
-    {
-        foreach (var line in Lines.Where(l => l.ExcelDutyRatePercent.HasValue))
-        {
-            line.UserConfirmedExcelDutyFallback = true;
-        }
-    }
+    // Revue du 2026-10-05 ("DD Excel prioritaire par défaut") : l'ancien mécanisme de confirmation globale
+    // (ConfirmUseExcelDutyForAllLines / ConfirmUseExcelDutyForAllLinesCommand, Bug 2 du 2026-10-05) a été
+    // retiré — le Droit de Douane Excel est désormais utilisé PAR DÉFAUT dès qu'il existe, sans aucune
+    // confirmation requise. Voir ImportLineRowViewModel.ForceAiDutyRate pour le nouveau mécanisme
+    // (par ligne) permettant d'utiliser le DD IA à la place du DD Excel.
 
     /// <summary>
     /// Convertit <see cref="TotalValeurDouaneDzd"/> (toujours calculée/stockée en DZD) vers la devise
@@ -908,8 +887,6 @@ public sealed class ImportDetailViewModel : ObservableObject
     public RelayCommand ExportPdfCommand { get; }
     public RelayCommand<ImportLineRowViewModel> ConfirmHsCommand { get; }
     public RelayCommand<ImportLineRowViewModel> ViewDetailCommand { get; }
-    /// <summary>Bug 2 (correction 2026-10-05) : voir <see cref="ConfirmUseExcelDutyForAllLines"/>.</summary>
-    public RelayCommand ConfirmUseExcelDutyForAllLinesCommand { get; }
     public RelayCommand AddFeeCommand { get; }
     public RelayCommand<FeeRowViewModel> RemoveFeeCommand { get; }
 

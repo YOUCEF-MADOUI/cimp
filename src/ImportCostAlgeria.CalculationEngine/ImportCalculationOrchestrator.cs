@@ -85,7 +85,14 @@ public sealed record LineCustomsResult(
     // confirmé manuellement), ValeurParDefautImportation (taux par défaut de l'importation, en l'absence
     // de règle ET de confirmation Excel) ou CalculDuLogiciel (aucune des trois : reste 0 %, jamais
     // présenté comme définitif — voir aussi ExcelVsRegulatoryComparison/ComparisonLabelFr).
-    DataOriginTag CustomsDutyRateOriginTag = DataOriginTag.CalculDuLogiciel);
+    DataOriginTag CustomsDutyRateOriginTag = DataOriginTag.CalculDuLogiciel,
+    // Revue du 2026-10-05 ("DD Excel prioritaire par défaut") : taux DD "IA" PROPOSÉ par le moteur
+    // réglementaire à partir du Code SH confirmé et des règles publiées, qu'il soit ou non le taux
+    // EFFECTIVEMENT appliqué (CustomsDutyRatePercent peut désormais provenir du DD Excel à la place).
+    // Toujours renseigné dès qu'une règle réglementaire DD existe pour ce Code SH, pour permettre
+    // l'affichage de la colonne "DD IA" et la comparaison avec le DD Excel — null si aucune règle
+    // réglementaire DD n'a pu être résolue pour cet article (aucune proposition IA possible).
+    decimal? AiProposedDutyRatePercent = null);
 
 /// <summary>
 /// Résultat 2 (Section 26) : Coût d'acquisition et Coût de revient économique réel.
@@ -1055,47 +1062,86 @@ public sealed class ImportCalculationOrchestrator
             // DÉFAUT de l'importation (Section 4 de la correction du 2026-10-02) : le DD reste résolu
             // ARTICLE PAR ARTICLE (jamais un taux global imposé à toute l'importation) — seule la valeur
             // de repli (operation.DefaultDdRatePercent) est commune à défaut de règle officielle/Excel.
+            // Revue du 2026-10-05 ("DD Excel prioritaire par défaut") : le Droit de Douane fourni par
+            // l'utilisateur dans son fichier Excel (ExcelDutyRatePercent) est désormais sa DONNÉE MÉTIER
+            // DÉCLARÉE et devient la source PRIORITAIRE PAR DÉFAUT, SANS confirmation ligne par ligne (voir
+            // ImportLine.UserConfirmedExcelDutyFallback, désormais obsolète et plus jamais lu ici). Le DD
+            // "IA" (résolu automatiquement par le moteur réglementaire à partir du Code SH confirmé et des
+            // règles publiées) reste systématiquement calculé et affiché à titre de PROPOSITION/COMPARAISON
+            // — il ne redevient le taux effectivement appliqué que si l'utilisateur coche explicitement
+            // "Forcer DD IA" (ImportLine.ForceAiDutyRate) sur cette ligne précise.
+            //
+            // Nouvel ordre de priorité (remplace l'ancienne règle "réglementaire toujours prioritaire") :
+            //   1. DD IA forcé explicitement par l'utilisateur (ForceAiDutyRate=true ET une proposition IA existe) ;
+            //   2. DD Excel fourni dans le fichier (prioritaire par défaut dès qu'il existe) ;
+            //   3. DD IA proposé automatiquement (aucun DD Excel disponible) ;
+            //   4. taux DD par défaut de l'importation (si operation.UseDefaultRatesWhenRuleMissing) ;
+            //   5. 0 / NON DÉTERMINÉ.
+            decimal? aiProposedDutyRatePercent = regOutcome.CustomsDutyRule?.RatePercent;
+            bool aiRuleAvailable = regOutcome.CustomsDutyRule != null;
+            bool forcedAiButUnavailable = line.ForceAiDutyRate && !aiRuleAvailable;
+
             decimal effectiveDutyRate;
             DutyComparisonStatus comparisonStatus;
             string comparisonLabel;
             DataOriginTag customsDutyRateOriginTag;
+            // Conditionne la citation légale (CustomsDutyLegalArticleReference/JoraReference/VersionCode) :
+            // ne doit JAMAIS citer la règle réglementaire comme fondement du taux appliqué lorsque ce n'est
+            // pas réellement elle qui a été utilisée (ex : DD Excel prioritaire malgré une règle différente).
+            bool effectiveRateComesFromAiRule;
 
-            if (regOutcome.CustomsDutyRule != null)
+            if (forcedAiButUnavailable)
             {
-                effectiveDutyRate = regOutcome.CustomsDutyRule.RatePercent;
+                anomalies.Add(new CalculationAnomaly(
+                    AnomalySeverity.Avertissement,
+                    "AI_DUTY_RATE_FORCED_BUT_UNAVAILABLE",
+                    $"⚠️ Ligne {line.LineNumber} ({line.ProductReference}) : « Forcer DD IA » est coché mais aucune proposition DD IA (règle réglementaire) n'a pu être déterminée pour cet article — le Droit de Douane Excel (si disponible) ou le taux par défaut de l'importation est utilisé à la place.",
+                    LineNumber: line.LineNumber));
+            }
+
+            if (line.ForceAiDutyRate && aiRuleAvailable)
+            {
+                effectiveDutyRate = aiProposedDutyRatePercent!.Value;
                 customsDutyRateOriginTag = DataOriginTag.DonneeOfficielle;
-                if (line.ExcelDutyRatePercent.HasValue)
+                effectiveRateComesFromAiRule = true;
+                comparisonStatus = DutyComparisonStatus.AiForcedByUserOverridingExcel;
+                comparisonLabel = line.ExcelDutyRatePercent.HasValue
+                    ? $"⚠️ DD IA ({effectiveDutyRate:F2} %) utilisé sur choix explicite de l'utilisateur (« Forcer DD IA »), au lieu du DD Excel ({line.ExcelDutyRatePercent.Value:F2} %)."
+                    : $"DD IA ({effectiveDutyRate:F2} %) utilisé sur choix explicite de l'utilisateur (« Forcer DD IA »).";
+            }
+            else if (line.ExcelDutyRatePercent.HasValue)
+            {
+                effectiveDutyRate = line.ExcelDutyRatePercent.Value;
+                customsDutyRateOriginTag = DataOriginTag.DonneeUtilisateur;
+                effectiveRateComesFromAiRule = false;
+
+                if (forcedAiButUnavailable)
                 {
-                    if (line.ExcelDutyRatePercent.Value == effectiveDutyRate)
-                    {
-                        comparisonStatus = DutyComparisonStatus.Match;
-                        comparisonLabel = $"✓ Correspondance ({effectiveDutyRate:F2} %)";
-                    }
-                    else
-                    {
-                        comparisonStatus = DutyComparisonStatus.Difference;
-                        comparisonLabel = $"⚠️ DIFFÉRENCE (Droit Excel : {line.ExcelDutyRatePercent.Value:F2} % / Droit réglementaire : {effectiveDutyRate:F2} %)";
-                        anomalies.Add(new CalculationAnomaly(
-                            AnomalySeverity.Avertissement,
-                            "EXCEL_VS_REGULATORY_DUTY_DIFF",
-                            $"⚠️ Ligne {line.LineNumber} ({line.ProductReference}) : Droit Excel ({line.ExcelDutyRatePercent.Value:F2} %) différent du droit réglementaire officiel ({effectiveDutyRate:F2} %). Le taux réglementaire est appliqué.",
-                            LineNumber: line.LineNumber,
-                            ExpectedValue: $"{effectiveDutyRate:F2}%",
-                            ActualValue: $"{line.ExcelDutyRatePercent.Value:F2}%"));
-                    }
+                    comparisonStatus = DutyComparisonStatus.AiForcedByUserButNoAiProposalAvailable;
+                    comparisonLabel = $"⚠️ « Forcer DD IA » coché mais aucune proposition DD IA n'est disponible pour cet article : le DD Excel ({effectiveDutyRate:F2} %) reste utilisé.";
+                }
+                else if (!aiRuleAvailable)
+                {
+                    comparisonStatus = DutyComparisonStatus.ExcelPriorityNoAiProposalAvailable;
+                    comparisonLabel = $"DD Excel ({effectiveDutyRate:F2} %) utilisé — aucune proposition DD IA disponible pour comparaison sur cet article.";
+                }
+                else if (line.ExcelDutyRatePercent.Value == aiProposedDutyRatePercent!.Value)
+                {
+                    comparisonStatus = DutyComparisonStatus.ExcelPriorityMatchesAi;
+                    comparisonLabel = $"✓ DD Excel ({effectiveDutyRate:F2} %) correspond au DD IA proposé.";
                 }
                 else
                 {
-                    comparisonStatus = DutyComparisonStatus.Match;
-                    comparisonLabel = $"✓ Correspondance ({effectiveDutyRate:F2} %)";
+                    comparisonStatus = DutyComparisonStatus.ExcelPriorityDiffersFromAi;
+                    comparisonLabel = $"⚠️ Différence : DD IA {aiProposedDutyRatePercent.Value:F2} % / DD Excel {effectiveDutyRate:F2} % — DD Excel utilisé (priorité par défaut). Cochez « Forcer DD IA » pour utiliser {aiProposedDutyRatePercent.Value:F2} % à la place.";
+                    anomalies.Add(new CalculationAnomaly(
+                        AnomalySeverity.Avertissement,
+                        "EXCEL_VS_AI_DUTY_DIFF",
+                        $"⚠️ Ligne {line.LineNumber} ({line.ProductReference}) : Droit de Douane Excel ({effectiveDutyRate:F2} %) différent de la proposition DD IA ({aiProposedDutyRatePercent.Value:F2} %). Le DD Excel est utilisé par défaut (donnée métier déclarée par l'utilisateur) — cochez « Forcer DD IA » pour utiliser la proposition IA à la place.",
+                        LineNumber: line.LineNumber,
+                        ExpectedValue: $"{aiProposedDutyRatePercent.Value:F2}%",
+                        ActualValue: $"{effectiveDutyRate:F2}%"));
                 }
-            }
-            else if (line.ExcelDutyRatePercent.HasValue && line.UserConfirmedExcelDutyFallback)
-            {
-                effectiveDutyRate = line.ExcelDutyRatePercent.Value;
-                comparisonStatus = DutyComparisonStatus.ExcelFallbackConfirmedByUser;
-                comparisonLabel = $"⚠️ Taux Excel ({effectiveDutyRate:F2} %) utilisé sur confirmation explicite de l'utilisateur";
-                customsDutyRateOriginTag = DataOriginTag.DonneeUtilisateur;
 
                 // Revue du 2026-10-05 (Bug 2 — vérification de la convention de pourcentage, "NE PAS
                 // DEVINER") : CIMP n'effectue AUCUNE normalisation automatique d'une éventuelle fraction
@@ -1104,7 +1150,8 @@ public sealed class ImportCalculationOrchestrator
                 // 1 point de pourcentage est donc soit un taux réellement infime (rare pour un Droit de
                 // Douane), soit le signe d'une fraction Excel non convertie par l'utilisateur avant l'import
                 // (0.05 saisi/exporté au lieu de 5). Dans le doute, un AVERTISSEMENT explicite et traçable
-                // est levé ici plutôt qu'une correction silencieuse potentiellement erronée.
+                // est levé ici plutôt qu'une correction silencieuse potentiellement erronée — la valeur
+                // saisie reste néanmoins utilisée TELLE QUELLE pour le calcul (jamais multipliée par 100).
                 if (effectiveDutyRate > 0m && effectiveDutyRate < 1m)
                 {
                     anomalies.Add(new CalculationAnomaly(
@@ -1115,16 +1162,25 @@ public sealed class ImportCalculationOrchestrator
                         ActualValue: $"{effectiveDutyRate:F2}%"));
                 }
             }
+            else if (aiRuleAvailable)
+            {
+                effectiveDutyRate = aiProposedDutyRatePercent!.Value;
+                customsDutyRateOriginTag = DataOriginTag.DonneeOfficielle;
+                effectiveRateComesFromAiRule = true;
+                comparisonStatus = DutyComparisonStatus.AiProposedRateUsedNoExcelAvailable;
+                comparisonLabel = $"DD IA ({effectiveDutyRate:F2} %) utilisé — aucun DD Excel fourni pour cet article.";
+            }
             else if (useDefaultRates)
             {
                 effectiveDutyRate = operation.DefaultDdRatePercent;
                 comparisonStatus = DutyComparisonStatus.DefaultImportRateUsed;
-                comparisonLabel = $"⚠️ VALEUR PAR DÉFAUT DE L'IMPORTATION : DD = {effectiveDutyRate:F2} % (règle réglementaire introuvable pour cet article — à vérifier)";
+                comparisonLabel = $"⚠️ VALEUR PAR DÉFAUT DE L'IMPORTATION : DD = {effectiveDutyRate:F2} % (ni DD Excel, ni proposition IA disponibles pour cet article — à vérifier)";
                 customsDutyRateOriginTag = DataOriginTag.ValeurParDefautImportation;
+                effectiveRateComesFromAiRule = false;
                 anomalies.Add(new CalculationAnomaly(
                     AnomalySeverity.Avertissement,
                     "DD_DEFAULT_RATE_USED",
-                    $"⚠️ Ligne {line.LineNumber} ({line.ProductReference}) : Droit de Douane non déterminé réglementairement — taux par défaut de l'importation appliqué ({effectiveDutyRate:F2} %). Statut : VALEUR PAR DÉFAUT / NON VÉRIFIÉE.",
+                    $"⚠️ Ligne {line.LineNumber} ({line.ProductReference}) : Droit de Douane non déterminé (ni DD Excel, ni proposition IA) — taux par défaut de l'importation appliqué ({effectiveDutyRate:F2} %). Statut : VALEUR PAR DÉFAUT / NON VÉRIFIÉE.",
                     LineNumber: line.LineNumber));
             }
             else
@@ -1133,6 +1189,7 @@ public sealed class ImportCalculationOrchestrator
                 comparisonStatus = DutyComparisonStatus.RegulatoryNotFoundPendingConfirmation;
                 comparisonLabel = "INFORMATION NON DÉTERMINÉE (Confirmation utilisateur requise)";
                 customsDutyRateOriginTag = DataOriginTag.CalculDuLogiciel;
+                effectiveRateComesFromAiRule = false;
             }
 
             // 4. Droit de douane (DD) = Valeur en douane × Taux DD (résolu article par article, jamais globalement)
@@ -1508,17 +1565,22 @@ public sealed class ImportCalculationOrchestrator
                 TotalDutiesAndTaxesDzd: totalLineDutiesAndTaxesDzd,
                 CustomsValuePlusDutiesAndTaxesDzd: lineCustomsClearedTotalDzd,
                 // Section 17 de l'audit : citation légale issue de la règle réglementaire RÉELLEMENT
-                // résolue pour cette ligne (jamais une référence générique codée en dur) ; null si aucune
-                // règle officielle n'a été trouvée (ex: taux Excel confirmé par défaut de règle officielle).
-                CustomsDutyLegalArticleReference: regOutcome.CustomsDutyRule?.LegalSource.ArticleReference,
-                CustomsDutyJoraReference: regOutcome.CustomsDutyRule?.LegalSource.JoraReference,
-                CustomsDutyRegulatoryVersionCode: regOutcome.CustomsDutyRule?.RegulatoryVersionCode,
+                // résolue ET EFFECTIVEMENT APPLIQUÉE pour cette ligne (jamais une référence générique codée
+                // en dur, et jamais citée comme fondement d'un taux qui n'est pas réellement celui utilisé).
+                // Revue du 2026-10-05 : depuis l'introduction de la priorité "DD Excel par défaut", une règle
+                // réglementaire DD peut exister (regOutcome.CustomsDutyRule) sans être le taux appliqué (le
+                // DD Excel, différent, l'emporte) — dans ce cas la citation légale doit rester null plutôt que
+                // de présenter à tort l'article réglementaire comme fondement du taux affiché.
+                CustomsDutyLegalArticleReference: effectiveRateComesFromAiRule ? regOutcome.CustomsDutyRule?.LegalSource.ArticleReference : null,
+                CustomsDutyJoraReference: effectiveRateComesFromAiRule ? regOutcome.CustomsDutyRule?.LegalSource.JoraReference : null,
+                CustomsDutyRegulatoryVersionCode: effectiveRateComesFromAiRule ? regOutcome.CustomsDutyRule?.RegulatoryVersionCode : null,
                 VatLegalArticleReference: regOutcome.VatRule?.LegalSource.ArticleReference,
                 VatJoraReference: regOutcome.VatRule?.LegalSource.JoraReference,
                 VatRegulatoryVersionCode: regOutcome.VatRule?.RegulatoryVersionCode,
                 StandardTaxApplicability: standardTaxApplicability,
                 VatRateOriginTag: vatRateOriginTag,
-                CustomsDutyRateOriginTag: customsDutyRateOriginTag);
+                CustomsDutyRateOriginTag: customsDutyRateOriginTag,
+                AiProposedDutyRatePercent: aiProposedDutyRatePercent);
 
             // Résultat 2 (Section 26) : Coût d'acquisition et Coût de revient économique réel
             decimal feesInCustomsValueDzd = lineAllocations

@@ -98,20 +98,24 @@ public sealed class ImportLineRowViewModel : ObservableObject
     }
 
     /// <summary>
-    /// Correction du 2026-10-05 (Bug 2 — "Droit de douane importé depuis Excel non utilisé") : confirmation
-    /// EXPLICITE de l'utilisateur d'utiliser <see cref="ExcelDutyRatePercent"/> comme taux de Droit de
-    /// Douane (DD) de REPLI pour CETTE ligne, UNIQUEMENT lorsqu'aucune règle réglementaire officielle n'est
-    /// trouvée pour son code SH (une règle officielle reste TOUJOURS prioritaire — voir
-    /// ImportCalculationOrchestrator, inchangé par cette correction). Avant cette correction, ce champ
-    /// n'était exposé nulle part dans l'interface : il restait donc toujours à "false" par défaut et le
-    /// repli Excel n'était jamais atteignable, même lorsque l'utilisateur le souhaitait (d'où "Total DD"
-    /// restant à 0 malgré un "Droit Excel %" affiché correctement). Peut aussi être positionné en une seule
-    /// fois pour toute l'importation via <see cref="ImportDetailViewModel.ConfirmUseExcelDutyForAllLinesCommand"/>.
+    /// Revue du 2026-10-05 ("DD Excel prioritaire par défaut") : case "Forcer DD IA" de CETTE ligne.
+    /// Le Droit de Douane Excel (<see cref="ExcelDutyRatePercent"/>) est désormais utilisé PAR DÉFAUT dès
+    /// qu'il existe, SANS confirmation (l'ancien mécanisme <see cref="ImportCostAlgeria.Core.Domain.ImportLine.UserConfirmedExcelDutyFallback"/>
+    /// et le bouton de confirmation globale associé ont été retirés de l'interface — voir ImportDetailView,
+    /// Bug 2 du 2026-10-05, remplacé par cette nouvelle logique). Cocher cette case force l'utilisation du
+    /// DD "IA" (<see cref="AiProposedDutyRatePercent"/>) à la place du DD Excel pour cette ligne précise ;
+    /// la décocher revient immédiatement au DD Excel. Sans effet si aucune proposition DD IA n'existe pour
+    /// cet article (voir <see cref="ImportCostAlgeria.Core.Domain.DutyComparisonStatus.AiForcedByUserButNoAiProposalAvailable"/>).
     /// </summary>
-    public bool UserConfirmedExcelDutyFallback
+    public bool ForceAiDutyRate
     {
-        get => Line.UserConfirmedExcelDutyFallback;
-        set { Line.UserConfirmedExcelDutyFallback = value; OnPropertyChanged(); }
+        get => Line.ForceAiDutyRate;
+        set
+        {
+            if (Line.ForceAiDutyRate == value) return;
+            Line.ForceAiDutyRate = value;
+            OnPropertyChanged();
+        }
     }
 
     public decimal? LineGrossWeightKg
@@ -214,6 +218,10 @@ public sealed class ImportLineRowViewModel : ObservableObject
                 OnPropertyChanged(nameof(AuthorizationUnitPrice));
                 OnPropertyChanged(nameof(AuthorizationTotalAmount));
                 OnPropertyChanged(nameof(DutyComparisonLabel));
+                OnPropertyChanged(nameof(AiProposedDutyRatePercent));
+                OnPropertyChanged(nameof(DroitDouaneTauxEffectifPercent));
+                OnPropertyChanged(nameof(HasDutyRateDifference));
+                OnPropertyChanged(nameof(DutyRateDifferenceIndicator));
             }
         }
     }
@@ -234,12 +242,40 @@ public sealed class ImportLineRowViewModel : ObservableObject
 
     /// <summary>
     /// Correction du 2026-10-05 (Bug 2) : explique, en clair, QUELLE source de taux DD a réellement été
-    /// utilisée pour calculer <see cref="DroitDouaneDzd"/> (règle réglementaire officielle, repli Excel
-    /// confirmé par l'utilisateur, valeur par défaut de l'importation, ou non déterminé) — déjà calculé par
-    /// le moteur (<see cref="ImportCostAlgeria.CalculationEngine.CustomsOutcome.ComparisonLabelFr"/>) mais
-    /// jusqu'ici jamais affiché. Null tant qu'aucun calcul n'a encore été exécuté pour cette ligne.
+    /// utilisée pour calculer <see cref="DroitDouaneDzd"/> (DD Excel prioritaire par défaut, DD IA forcé par
+    /// l'utilisateur, valeur par défaut de l'importation, ou non déterminé) — déjà calculé par le moteur
+    /// (<see cref="ImportCostAlgeria.CalculationEngine.LineCustomsResult.ComparisonLabelFr"/>) mais jusqu'ici
+    /// jamais affiché. Null tant qu'aucun calcul n'a encore été exécuté pour cette ligne.
     /// </summary>
     public string? DutyComparisonLabel => Result?.CustomsOutcome.ComparisonLabelFr;
+
+    /// <summary>
+    /// Revue du 2026-10-05 ("DD Excel prioritaire par défaut") : taux DD "IA" PROPOSÉ par le moteur
+    /// réglementaire pour cet article (Code SH + règles publiées), à titre de comparaison — qu'il soit ou
+    /// non le taux effectivement appliqué (voir <see cref="DroitDouaneTauxEffectifPercent"/>). Colonne
+    /// affichée à GAUCHE du tableau (avant le DD Excel), conformément à la nouvelle maquette. Null tant
+    /// qu'aucun calcul n'a encore été exécuté, ou si aucune règle réglementaire DD n'a pu être résolue.
+    /// </summary>
+    public decimal? AiProposedDutyRatePercent => Result?.CustomsOutcome.AiProposedDutyRatePercent;
+
+    /// <summary>Taux DD réellement appliqué au calcul (DD Excel, DD IA forcé, ou valeur par défaut — voir <see cref="DutyComparisonLabel"/>).</summary>
+    public decimal? DroitDouaneTauxEffectifPercent => Result?.CustomsOutcome.CustomsDutyRatePercent;
+
+    /// <summary>
+    /// Revue du 2026-10-05 : vrai lorsque le DD IA et le DD Excel existent tous les deux et diffèrent —
+    /// pilote l'affichage de l'indicateur de différence (ex : "⚠ Différence : IA 5 % / Excel 30 %") et
+    /// l'activation visuelle de la case "Forcer DD IA" dans l'interface.
+    /// </summary>
+    public bool HasDutyRateDifference =>
+        Result != null
+        && Line.ExcelDutyRatePercent.HasValue
+        && Result.CustomsOutcome.AiProposedDutyRatePercent.HasValue
+        && Result.CustomsOutcome.AiProposedDutyRatePercent.Value != Line.ExcelDutyRatePercent.Value;
+
+    /// <summary>Texte court de l'indicateur de différence affiché en colonne (ex : "⚠ Différence : IA 5 % / Excel 30 %"), vide sinon.</summary>
+    public string DutyRateDifferenceIndicator => HasDutyRateDifference
+        ? $"⚠ Différence : IA {Result!.CustomsOutcome.AiProposedDutyRatePercent!.Value:F2} % / Excel {Line.ExcelDutyRatePercent!.Value:F2} %"
+        : string.Empty;
 
     // Revue du 2026-10-02 (REFONTE INTERFACE, Section 18) : CS/PRCT/TCS affichées comme colonnes
     // individuelles dans le tableau des articles (plus de colonne "Autres taxes" agrégée), même source de

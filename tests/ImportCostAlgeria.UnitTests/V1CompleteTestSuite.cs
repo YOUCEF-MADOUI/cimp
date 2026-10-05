@@ -270,7 +270,12 @@ public sealed class V1CompleteTestSuite
                     CurrencyCode = "EUR",
                     HsCodeConfirmed10 = "8708.99.90.00",
                     OriginCountryIso2 = "CN",
-                    ExcelDutyRatePercent = 10.0m, // Différent du taux réglementaire (15 %)
+                    ExcelDutyRatePercent = 10.0m, // Différent de la proposition DD IA / réglementaire (15 %)
+                    // Revue du 2026-10-05 ("DD Excel prioritaire par défaut") : le DD Excel (10 %) est
+                    // désormais prioritaire par défaut sur la proposition DD IA (15 %) — pour préserver EXACTEMENT
+                    // ce cas de test historique (golden master vérifié "à la centime" avec le DD IA/réglementaire
+                    // de 15 % effectivement appliqué), "Forcer DD IA" est explicitement activé ici.
+                    ForceAiDutyRate = true,
                     LineGrossWeightKg = 1000m
                 },
                 new ImportLine
@@ -283,7 +288,7 @@ public sealed class V1CompleteTestSuite
                     CurrencyCode = "EUR",
                     HsCodeConfirmed10 = "8421.29.90.00",
                     OriginCountryIso2 = "CN",
-                    ExcelDutyRatePercent = 5.0m,  // Correspondance avec le taux réglementaire (5 %)
+                    ExcelDutyRatePercent = 5.0m,  // Correspondance avec la proposition DD IA / réglementaire (5 %)
                     LineGrossWeightKg = 600m
                 }
             },
@@ -375,8 +380,15 @@ public sealed class V1CompleteTestSuite
         var lineA = summary.LineResults[0];
         var lineB = summary.LineResults[1];
 
-        Assert.Equal(DutyComparisonStatus.Difference, lineA.CustomsOutcome.ExcelVsRegulatoryComparison);
-        Assert.Equal(DutyComparisonStatus.Match, lineB.CustomsOutcome.ExcelVsRegulatoryComparison);
+        // Revue du 2026-10-05 ("DD Excel prioritaire par défaut") : PROD-A a explicitement "Forcer DD IA"
+        // activé ci-dessus (voir commentaire sur ExcelDutyRatePercent) afin que le taux de 15 % (proposition
+        // DD IA / réglementaire) reste celui effectivement appliqué, préservant EXACTEMENT tous les montants
+        // "à la centime" de ce golden master — d'où le nouveau statut AiForcedByUserOverridingExcel (et non
+        // plus l'ancien "Difference", qui n'est plus jamais produit par le moteur de calcul). PROD-B n'a pas
+        // "Forcer DD IA" : son DD Excel (5 %) est utilisé par défaut et correspond à la proposition DD IA
+        // (5 %) — d'où ExcelPriorityMatchesAi (résultat numérique strictement identique à l'ancien "Match").
+        Assert.Equal(DutyComparisonStatus.AiForcedByUserOverridingExcel, lineA.CustomsOutcome.ExcelVsRegulatoryComparison);
+        Assert.Equal(DutyComparisonStatus.ExcelPriorityMatchesAi, lineB.CustomsOutcome.ExcelVsRegulatoryComparison);
         Assert.Equal(3169.38m, lineA.EconomicOutcome.UnitCostOfGoodsDzd);
         Assert.Equal(5395.73m, lineB.EconomicOutcome.UnitCostOfGoodsDzd);
     }

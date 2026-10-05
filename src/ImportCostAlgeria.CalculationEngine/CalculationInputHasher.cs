@@ -67,6 +67,11 @@ public static class CalculationInputHasher
             Add("L.Origin", line.OriginCountryIso2);
             Add("L.ExcelDutyRatePercent", line.ExcelDutyRatePercent);
             Add("L.UserConfirmedExcelDutyFallback", line.UserConfirmedExcelDutyFallback);
+            // Revue du 2026-10-05 ("DD Excel prioritaire par défaut") : ForceAiDutyRate influence
+            // directement le taux de Droit de Douane effectivement appliqué (voir ImportCalculationOrchestrator)
+            // — doit donc faire partie de la signature d'entrée, exactement comme UserConfirmedExcelDutyFallback
+            // ci-dessus (conservé pour compatibilité des anciens calculs déjà signés).
+            Add("L.ForceAiDutyRate", line.ForceAiDutyRate);
             Add("L.ManualVatRatePercent", line.ManualVatRatePercent);
             Add("L.UserConfirmedManualVatRate", line.UserConfirmedManualVatRate);
             Add("L.VatExemptionReasonFr", line.VatExemptionReasonFr);

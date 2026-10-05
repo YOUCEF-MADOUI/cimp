@@ -189,6 +189,13 @@ public static class DbContextFactory
             // "non comparable" -> traitée comme potentiellement obsolète au prochain chargement, jamais
             // une erreur).
             AddColumnIfMissing(connection, "CalculationSnapshots", "InputHash", "TEXT NOT NULL DEFAULT ''");
+
+            // Revue du 2026-10-05 ("DD Excel prioritaire par défaut") : nouvelle case "Forcer DD IA" par
+            // ligne (ImportLine.ForceAiDutyRate) permettant à l'utilisateur de remplacer explicitement le
+            // Droit de Douane Excel (prioritaire par défaut depuis cette revue) par la proposition DD IA.
+            // DEFAULT 0 pour les lignes déjà existantes dans une base déployée : comportement inchangé pour
+            // tout import déjà saisi (le DD Excel reste utilisé, comme si la case n'avait jamais été cochée).
+            AddColumnIfMissing(connection, "ImportLines", "ForceAiDutyRate", "INTEGER NOT NULL DEFAULT 0");
         }
         finally
         {

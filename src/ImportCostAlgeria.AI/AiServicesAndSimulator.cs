@@ -142,6 +142,7 @@ public sealed class ImportSimulatorService
                 OriginCountryIso2 = l.OriginCountryIso2,
                 ExcelDutyRatePercent = l.ExcelDutyRatePercent,
                 UserConfirmedExcelDutyFallback = l.UserConfirmedExcelDutyFallback,
+                ForceAiDutyRate = l.ForceAiDutyRate,
                 ManualVatRatePercent = l.ManualVatRatePercent,
                 UserConfirmedManualVatRate = l.UserConfirmedManualVatRate,
                 VatExemptionReasonFr = l.VatExemptionReasonFr,

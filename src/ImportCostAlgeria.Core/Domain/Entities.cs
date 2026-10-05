@@ -111,10 +111,10 @@ public enum TaxableBaseType
 
 public enum DutyComparisonStatus
 {
-    Match,                                  // ✓ Correspondance (Droit Excel == Droit réglementaire)
-    Difference,                             // ⚠️ DIFFÉRENCE (Droit Excel != Droit réglementaire)
+    Match,                                  // ✓ Correspondance (Droit Excel == Droit réglementaire) — statut historique, conservé pour compatibilité (snapshots déjà enregistrés), plus jamais produit par la logique actuelle (voir ExcelPriorityMatchesAi).
+    Difference,                             // ⚠️ DIFFÉRENCE (Droit Excel != Droit réglementaire) — statut historique (ancienne règle : le réglementaire gagnait toujours), conservé pour compatibilité, plus jamais produit (voir ExcelPriorityDiffersFromAi).
     RegulatoryNotFoundPendingConfirmation,  // INFORMATION NON DÉTERMINÉE -> Attente confirmation utilisateur
-    ExcelFallbackConfirmedByUser,           // Taux Excel utilisé après confirmation explicite et tracée
+    ExcelFallbackConfirmedByUser,           // Statut historique (ancien mécanisme UserConfirmedExcelDutyFallback, confirmation ligne par ligne obligatoire) — conservé pour compatibilité, plus jamais produit (voir ci-dessous : le DD Excel est désormais prioritaire par défaut, sans confirmation).
     /// <summary>
     /// Revue du 2026-10-02 (correction urgente — ne plus bloquer le calcul faute de RegulatoryRule) :
     /// aucune règle réglementaire ni taux Excel confirmé n'étaient disponibles pour cet article, mais
@@ -123,8 +123,32 @@ public enum DutyComparisonStatus
     /// comme un taux réglementaire confirmé : un AVERTISSEMENT (jamais un blocage) est systématiquement
     /// généré et le résultat doit être vérifié avant toute utilisation définitive.
     /// </summary>
-    DefaultImportRateUsed
+    DefaultImportRateUsed,
+
+    // ------------------------------------------------------------------------------------------
+    // Revue du 2026-10-05 (nouvelle priorité "DD Excel par défaut") : le taux Excel fourni par
+    // l'utilisateur dans son fichier est désormais considéré comme sa donnée métier et utilisé PAR DÉFAUT
+    // dès qu'il existe, sans confirmation ligne par ligne. Le DD "IA" (résolu automatiquement à partir du
+    // Code SH et des règles réglementaires) reste calculé et affiché à titre de proposition/comparaison, et
+    // ne redevient le taux appliqué que si l'utilisateur coche explicitement "Forcer DD IA" sur la ligne.
+    // Nouveaux statuts ajoutés EN FIN d'énumération (jamais de réordonnancement/suppression d'une valeur
+    // existante) afin de ne jamais invalider une valeur numérique déjà sérialisée (CalculationSnapshotRow.
+    // CalculationResultJson) d'un calcul enregistré avant cette version.
+    // ------------------------------------------------------------------------------------------
+    /// <summary>DD Excel utilisé (priorité par défaut) ; une proposition DD IA existe et lui est identique — aucune alerte nécessaire.</summary>
+    ExcelPriorityMatchesAi,
+    /// <summary>DD Excel utilisé (priorité par défaut) alors qu'une proposition DD IA différente existe — différence affichée, "Forcer DD IA" proposé.</summary>
+    ExcelPriorityDiffersFromAi,
+    /// <summary>DD Excel utilisé (priorité par défaut) ; aucune proposition DD IA n'a pu être déterminée pour cet article (rien à comparer).</summary>
+    ExcelPriorityNoAiProposalAvailable,
+    /// <summary>Aucun DD Excel fourni pour cet article : le DD IA proposé automatiquement est utilisé.</summary>
+    AiProposedRateUsedNoExcelAvailable,
+    /// <summary>L'utilisateur a explicitement coché "Forcer DD IA" sur cette ligne : le DD IA est utilisé même si un DD Excel différent existe.</summary>
+    AiForcedByUserOverridingExcel,
+    /// <summary>"Forcer DD IA" coché par l'utilisateur, mais aucune proposition DD IA n'est disponible pour cet article : le choix n'a pas pu être honoré, repli sur le DD Excel/taux par défaut avec avertissement explicite.</summary>
+    AiForcedByUserButNoAiProposalAvailable
 }
+
 
 public enum AiProposalDecision
 {
@@ -444,7 +468,29 @@ public sealed class ImportLine
     /// </summary>
     public string? OriginCountryIso2 { get; set; }
     public decimal? ExcelDutyRatePercent { get; set; }
+    /// <summary>
+    /// Ancien mécanisme (revue du 2026-10-05, Bug 2) : confirmation ligne par ligne autrefois nécessaire
+    /// pour que <see cref="ExcelDutyRatePercent"/> soit pris en compte par <see
+    /// cref="ImportCostAlgeria.CalculationEngine.ImportCalculationOrchestrator"/>. N'est PLUS lu par le
+    /// moteur de calcul depuis la revue du 2026-10-05 : le Droit de Douane Excel est désormais utilisé PAR
+    /// DÉFAUT dès qu'il existe, sans confirmation requise (voir <see cref="ForceAiDutyRate"/> pour le
+    /// nouveau mécanisme de remplacement explicite). Ce champ est conservé UNIQUEMENT pour la compatibilité
+    /// des données déjà saisies/exportées par des versions antérieures (jamais supprimé de la base ni du
+    /// modèle) — ne plus l'utiliser dans du code nouveau.
+    /// </summary>
     public bool UserConfirmedExcelDutyFallback { get; set; }
+    /// <summary>
+    /// Revue du 2026-10-05 ("DD Excel prioritaire par défaut") : case "Forcer DD IA" cochée explicitement
+    /// par l'utilisateur sur CETTE ligne pour remplacer le Droit de Douane Excel (<see
+    /// cref="ExcelDutyRatePercent"/>, normalement prioritaire par défaut) par le DD "IA" — le taux résolu
+    /// automatiquement par le moteur réglementaire à partir du Code SH confirmé et des règles publiées.
+    /// Faux par défaut (comportement de repli : le DD Excel reste utilisé tant que l'utilisateur ne fait pas
+    /// ce choix explicite). Sans effet si aucune proposition DD IA n'existe pour cet article (voir
+    /// DutyComparisonStatus.AiForcedByUserButNoAiProposalAvailable) : le calcul retombe alors sur le DD
+    /// Excel, puis sur le taux par défaut de l'importation, exactement comme si cette case n'était pas
+    /// cochée, avec un avertissement explicite.
+    /// </summary>
+    public bool ForceAiDutyRate { get; set; }
     /// <summary>
     /// Revue du 2026-10-02 (Section 12 — "La TVA reste à 0 et il n'est pas possible de la saisir") : taux
     /// de TVA saisi/confirmé MANUELLEMENT par l'utilisateur, utilisé UNIQUEMENT lorsqu'aucune
