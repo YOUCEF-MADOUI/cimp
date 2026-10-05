@@ -74,6 +74,7 @@ public static class AnomalyGroupingService
             "TCS_RATE_NOT_DETERMINED" => $"{lineCount} {articleWord} avec Taxe de Contribution de Solidarité (TCS) non déterminée",
             "MANUAL_FEE_ALLOCATION_INCOMPLETE" => $"{occurrenceCount} frais non entièrement réparti(s) (allocation manuelle)",
             "CFR_POSSIBLE_FREIGHT_DOUBLE_COUNT" => "Fret possiblement compté deux fois (Incoterm CFR)",
+            "MISSING_WEIGHT_FOR_WEIGHT_ALLOCATION" => $"{occurrenceCount} frais non réparti(s) par poids (poids manquant sur au moins un article)",
             "MISSING_ORIGIN" => $"{lineCount} {articleWord} sans pays d'origine",
             "UNCONFIRMED_AI_HS_CODE" => $"{lineCount} {articleWord} avec un code SH proposé par IA non confirmé",
             "VAT_EXEMPTION_REASON_MISSING" => $"{lineCount} {articleWord} en exonération de TVA sans motif précisé",

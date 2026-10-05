@@ -547,8 +547,16 @@ public sealed class CostAllocationEngine
             case FeeAllocationMethod.ByWeight:
                 if (linesWithPurchaseDzd.Any(x => !x.Line.LineGrossWeightKg.HasValue || x.Line.LineGrossWeightKg.Value <= 0m))
                 {
+                    // Revue du 2026-10-05 (Tâche #20, point 1 — "retirer le blocage") : l'absence du poids
+                    // nécessaire à une répartition PAR POIDS ne doit plus jamais empêcher le calcul complet,
+                    // la consultation des résultats ni la sauvegarde de l'importation. Sévérité abaissée de
+                    // Blocage à Avertissement — AUCUN autre changement de comportement : aucun poids n'est
+                    // inventé, l'anomalie n'est ni supprimée ni masquée, et le repli déjà existant est
+                    // intégralement conservé (ce frais précis n'est simplement PAS réparti entre les
+                    // articles tant que le poids manque — voir "return result" ci-dessous, inchangé — le
+                    // reste du calcul se poursuit normalement pour toutes les autres lignes/frais).
                     anomalies.Add(new CalculationAnomaly(
-                        AnomalySeverity.Blocage,
+                        AnomalySeverity.Avertissement,
                         "MISSING_WEIGHT_FOR_WEIGHT_ALLOCATION",
                         $"⚠️ Le frais '{fee.FeeName}' est configuré pour une répartition PAR POIDS, mais le poids est absent sur une ou plusieurs lignes."));
                     return result;
@@ -1583,6 +1591,47 @@ public sealed class ImportCalculationOrchestrator
                 AiProposedDutyRatePercent: aiProposedDutyRatePercent);
 
             // Résultat 2 (Section 26) : Coût d'acquisition et Coût de revient économique réel
+            //
+            // Revue du 2026-10-05 (Tâche #20, point 3 — analyse du "double comptage du fret") : analyse
+            // tracée précisément AVANT toute modification, demandée explicitement par l'utilisateur, du
+            // chemin complet du montant d'un frais (ex: FRET_INTERNATIONAL) : saisie du frais -> conversion
+            // devise (feeDzd plus haut) -> répartition entre lignes (AllocateFeeAcrossLines, un seul passage
+            // par frais, un seul FeeAllocationTrace par (frais, ligne), cf. boucle "foreach (var fee in
+            // operation.Fees)" ci-dessus) -> CustomsValueCalculator.CalculateLineCustomsValueDzd (qui
+            // n'ajoute le montant alloué qu'UNE SEULE fois à la valeur en douane, uniquement si
+            // IncludeInCustomsValue=true) -> droits/taxes (assiette = valeur en douane déjà calculée,
+            // jamais le frais brut une seconde fois) -> ci-dessous, coût de revient.
+            //
+            // CONCLUSION DE L'ANALYSE (vérifiée algébriquement + par calcul manuel sur le jeu de données
+            // réel V1CompleteTestSuite "Section H" et sur les 4 scénarios dédiés de
+            // Task20WeightWarningAndFreightDoubleCountingTests) : la formule ci-dessous NE compte JAMAIS deux fois le
+            // montant brut d'un même frais, dans AUCUNE des 4 combinaisons possibles des cases "Inclure dans
+            // la valeur en douane" (IncludeInCustomsValue) / "Inclure dans le coût de revient"
+            // (IncludeInCostOfGoods) :
+            //   - Cas 1 (valeur douane seule) : le frais n'entre dans AUCUN des deux compartiments
+            //     ci-dessous (ni feesInCustomsValueDzd, ni localFeesInCostOfGoodsDzd) car IncludedInCostOfGoods
+            //     = false -> il n'est ajouté NULLE PART comme "frais de revient" ; son seul effet sur le coût
+            //     de revient est indirect, via l'assiette plus élevée des droits/taxes (customsDutyDzd /
+            //     totalAdditionalTaxesDzd), ce qui est le comportement légal attendu, pas un double comptage.
+            //   - Cas 2 (coût de revient seul) : le frais entre dans localFeesInCostOfGoodsDzd (une seule
+            //     fois) et n'affecte PAS la valeur en douane (CustomsValueCalculator l'ignore car
+            //     IncludeInCustomsValue=false) -> compté une seule fois, au bon endroit.
+            //   - Cas 3 (les deux cases cochées) : le frais entre dans feesInCustomsValueDzd (une seule
+            //     fois, via le filtre LINQ qui sélectionne CHAQUE FeeAllocationTrace au plus une fois, un
+            //     seul enregistrement existant par (frais, ligne)). Son montant apparaît alors UNE SEULE
+            //     fois dans la somme "purchaseDzd + totalAllocatedFeesForCostDzd" ci-dessous — et cette somme
+            //     est par construction algébriquement égale à "customsValueDzd" (plus les éventuels frais
+            //     locaux hors valeur en douane) : purchaseDzd + feesInCustomsValueDzd == customsValueDzd
+            //     lorsque ce frais est la seule addition. Le frais n'est donc PAS additionné une deuxième
+            //     fois "en plus" de la valeur en douane : la valeur en douane ET le coût de revient
+            //     partagent la MÊME occurrence unique du montant, jamais deux occurrences distinctes.
+            //   - Cas 4 (aucune case cochée) : le frais n'apparaît dans aucun des deux compartiments ni dans
+            //     la valeur en douane -> aucun effet, conformément à l'attendu.
+            // Ces 4 cas sont couverts par des tests de non-régression dédiés (voir
+            // Task20WeightWarningAndFreightDoubleCountingTests.cs) qui vérifient explicitement valeur en douane, DD, CS,
+            // PRCT, TVA, frais alloués et coût de revient total pour chaque combinaison, ainsi que l'absence
+            // de toute transformation d'un frais en "article" (le frais reste et demeure exclusivement dans
+            // operation.Fees, jamais ajouté à operation.Lines).
             decimal feesInCustomsValueDzd = lineAllocations
                 .Where(a => a.IncludedInCustomsValue && a.IncludedInCostOfGoods)
                 .Sum(a => a.AllocatedAmountDzd);

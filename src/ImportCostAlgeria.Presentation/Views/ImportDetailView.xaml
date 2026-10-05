@@ -23,7 +23,22 @@
             </StackPanel>
         </DockPanel>
 
-        <Border DockPanel.Dock="Top"
+        <!-- Tâche #20, point 2 (2026-10-05) : SCROLLBAR VERTICALE DE PAGE. Avant cette correction, tout le
+             contenu ci-dessous (bandeaux d'anomalies, cartes Valeur en douane/Coût de revient/Total
+             dédouanement, détails DD/CS/TVA/PRCT/RPS/DAPS/Frais, onglets Articles/Frais/Taux de
+             change & Incoterm/Notifications) était empilé en DockPanel.Dock="Top"/rempli sans AUCUN moyen de
+             défiler la PAGE entière : avec beaucoup de notifications, une fenêtre réduite, ou les détails
+             dépliés ("Voir les détails"), le bas de la page devenait inaccessible (rien ne permettait de
+             faire défiler la page pour l'atteindre). Seule la barre d'action tout en haut (DockPanel
+             ci-dessus) reste FIXE, hors défilement, comme annoncé par son commentaire d'origine. Tout le
+             reste est désormais placé dans ce ScrollViewer PAGE (vertical uniquement : HorizontalScrollBarVisibility
+             ="Disabled" pour ne jamais faire concurrence au défilement horizontal propre du DataGrid
+             Articles, qui reste géré par le DataGrid lui-même). -->
+        <ScrollViewer DockPanel.Dock="Top" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled"
+                      Focusable="False" CanContentScroll="False">
+        <StackPanel>
+
+        <Border
                 Visibility="{Binding HasBlockingAnomalies, Converter={StaticResource BoolToVisibilityConverter}}"
                 Background="#FCE8E6" Padding="8" Margin="0,0,0,8">
             <TextBlock Text="🚫 Cette importation comporte des anomalies BLOQUANTES : le coût de revient ne peut pas être considéré comme définitif."
@@ -33,7 +48,7 @@
         <!-- Revue du 2026-10-02 (correction urgente, Section 15) : bandeau ORANGE distinct du bandeau -->
         <!-- rouge ci-dessus — le calcul s'est exécuté avec succès mais reste PROVISOIRE (taux par défaut -->
         <!-- de l'importation utilisés en l'absence de règle réglementaire officielle). -->
-        <Border DockPanel.Dock="Top"
+        <Border
                 Visibility="{Binding IsProvisionalCalculation, Converter={StaticResource BoolToVisibilityConverter}}"
                 Background="#FFF4CE" Padding="8" Margin="0,0,0,8">
             <TextBlock Text="{Binding ProvisionalMessageFr}"
@@ -44,7 +59,7 @@
              BLEU distinct des deux précédents — les totaux affichés ci-dessous restent ceux du dernier
              calcul sauvegardé (jamais remis à zéro), mais les données saisies ont changé depuis : un
              nouveau calcul est nécessaire avant de considérer ces chiffres comme à jour. -->
-        <Border DockPanel.Dock="Top"
+        <Border
                 Visibility="{Binding IsCalculationOutdated, Converter={StaticResource BoolToVisibilityConverter}}"
                 Background="#E3F2FD" Padding="8" Margin="0,0,0,8">
             <TextBlock Text="ℹ Les données ont été modifiées depuis le dernier calcul : cliquez sur « Exécuter le calcul complet » pour mettre à jour les résultats affichés ci-dessous."
@@ -57,7 +72,7 @@
              Les résultats secondaires (DD, CS, TVA, PRCT, RPS, DAPS, Frais alloués) restent entièrement
              calculés/disponibles dans le modèle mais sont masqués par défaut, repliés derrière le bouton
              "Voir les détails" — aucune donnée supprimée, uniquement une amélioration de présentation. -->
-        <Border DockPanel.Dock="Top" Background="#F5F7FA" Padding="10" Margin="0,0,0,8">
+        <Border Background="#F5F7FA" Padding="10" Margin="0,0,0,8">
             <StackPanel>
                 <UniformGrid Columns="3">
                     <Border Margin="4" Background="#1A237E" Padding="8" CornerRadius="4">
@@ -171,7 +186,16 @@
             </StackPanel>
         </Border>
 
-        <TabControl>
+        <!-- Hauteur BORNÉE volontaire (Tâche #20, point 2) : à l'intérieur du StackPanel/ScrollViewer de
+             page ci-dessus, un conteneur sans hauteur explicite se dimensionnerait sur tout son contenu
+             (hauteur "infinie" disponible), ce qui désactiverait la barre de défilement VERTICALE PROPRE
+             des DataGrid (Articles/Frais/Notifications) — exactement le défaut à éviter ("ScrollViewer
+             imbriqué qui casse le DataGrid"). En fixant ici une hauteur raisonnable, chaque DataGrid garde
+             sa PROPRE barre de défilement verticale (et son défilement horizontal, inchangé, pour la table
+             Articles qui compte de nombreuses colonnes) ; le ScrollViewer de PAGE ne sert qu'à faire défiler
+             le reste (bandeaux, cartes de résultats, en-têtes d'onglets, section Notifications) lorsque la
+             fenêtre est trop petite ou que les détails sont dépliés. -->
+        <TabControl Height="480" VerticalAlignment="Top">
             <TabItem Header="Articles">
                 <DockPanel>
                     <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,4,0,4">
@@ -651,5 +675,8 @@
                 </DockPanel>
             </TabItem>
         </TabControl>
+
+        </StackPanel>
+        </ScrollViewer>
     </DockPanel>
 </UserControl>
