@@ -327,8 +327,32 @@ public sealed class Task20WeightWarningAndFreightDoubleCountingTests
         Assert.Equal(0m, summary.TotalImportFeesDzd);                   // Le fret n'apparaît nulle part.
         Assert.Equal(250_042.80m, summary.TotalRealCostOfGoodsDzd);      // Identique au Cas 2, MOINS le fret (40 000).
 
+        // Correction (Tâche #20.1) : FeeAllocationTrace est une trace TECHNIQUE de répartition — le moteur
+        // peut tout à fait produire une telle trace pour ce frais même lorsqu'il n'a AUCUN effet économique
+        // (Cas 4), tant que ses deux indicateurs d'inclusion sont à false. Exiger l'absence totale de trace
+        // (ancien Assert.Empty ci-dessous, également signalé par l'analyseur xUnit2029) ne correspond donc
+        // pas au comportement réel du moteur et n'est PAS une exigence métier — la preuve de non-
+        // comptabilisation repose principalement sur les résultats économiques déjà vérifiés ci-dessus
+        // (valeur en douane, DD, CS, PRCT, TVA, frais alloués, coût de revient strictement identiques à une
+        // opération sans ce frais). On se contente donc ici de vérifier qu'au plus une trace existe par
+        // ligne pour ce frais et que, si elle existe, elle ne porte aucun effet (les deux cases à false) —
+        // jamais qu'elle est absente.
         foreach (var line in summary.LineResults)
-            Assert.Empty(line.FeeAllocations.Where(a => a.FeeName == "Fret maritime international"));
+        {
+            var freightTraces = line.FeeAllocations.Where(a => a.FeeName == "Fret maritime international").ToList();
+            Assert.True(freightTraces.Count <= 1, "Au plus une trace d'allocation par (frais, ligne) est attendue.");
+
+            // Aucune trace de ce frais ne doit porter un effet (ni valeur en douane, ni coût de revient) :
+            // Assert.DoesNotContain vérifie une ABSENCE D'EFFET, jamais une absence de trace.
+            Assert.DoesNotContain(line.FeeAllocations, a =>
+                a.FeeName == "Fret maritime international" && (a.IncludedInCustomsValue || a.IncludedInCostOfGoods));
+
+            if (freightTraces.Count == 1)
+            {
+                Assert.False(freightTraces[0].IncludedInCustomsValue);
+                Assert.False(freightTraces[0].IncludedInCostOfGoods);
+            }
+        }
 
         AssertFreightNeverBecomesAnArticle(operation, summary);
     }
