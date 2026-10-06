@@ -53,6 +53,10 @@ public static class CalculationInputHasher
         Add("UserConfirmedManualPrct", operation.UserConfirmedManualPrct);
         Add("ManualTcsRatePercent", operation.ManualTcsRatePercent);
         Add("UserConfirmedManualTcs", operation.UserConfirmedManualTcs);
+        // Tâche #21, point 5 : nouveau taux CS manuel (remplace le TCS manuel dans l'écran V1) — doit
+        // influencer la clé de cache/hachage comme tout autre paramètre de calcul propre à l'importation.
+        Add("ManualCsRatePercent", operation.ManualCsRatePercent);
+        Add("UserConfirmedManualCs", operation.UserConfirmedManualCs);
 
         foreach (var line in operation.Lines.OrderBy(l => l.LineNumber))
         {

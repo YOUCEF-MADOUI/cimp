@@ -393,9 +393,34 @@ public sealed class ImportOperation
     /// </summary>
     public decimal? ManualPrctRatePercent { get; set; }
     public bool UserConfirmedManualPrct { get; set; }
-    /// <summary>Même principe que <see cref="ManualPrctRatePercent"/>, pour la Taxe de Contribution de Solidarité (TCS).</summary>
+    /// <summary>
+    /// Historique (jusqu'à la Tâche #21) : même principe que <see cref="ManualPrctRatePercent"/>, pour la
+    /// Taxe de Contribution de Solidarité (TCS). Revue du 2026-10-06 (Tâche #21, point 5 — "Retirer la TCS
+    /// de l'écran V1") : ce champ N'EST PLUS exposé dans l'écran de saisie V1 (remplacé par
+    /// <see cref="ManualCsRatePercent"/> ci-dessous, qui alimente la MÊME Contribution de Solidarité (CS)
+    /// que <see cref="DefaultCsRatePercent"/> — jamais une seconde taxe concurrente). Conservé UNIQUEMENT
+    /// pour la compatibilité ascendante des bases SQLite existantes (une importation déjà enregistrée avec
+    /// une confirmation manuelle TCS ne doit pas être corrompue/perdre cette donnée) ; le moteur de calcul
+    /// (<see cref="ImportCostAlgeria.CalculationEngine.ImportCalculationOrchestrator"/>) continue à
+    /// l'appliquer en interne pour le code taxe "TCS" (traçabilité historique), mais plus aucune action
+    /// utilisateur V1 ne permet de le modifier.
+    /// </summary>
     public decimal? ManualTcsRatePercent { get; set; }
     public bool UserConfirmedManualTcs { get; set; }
+    /// <summary>
+    /// Tâche #21, point 5 : taux de Contribution de Solidarité (CS) confirmé manuellement par
+    /// l'utilisateur pour TOUTE cette importation (jamais par article), utilisé UNIQUEMENT pour les lignes
+    /// dont le code SH ne dispose d'AUCUNE règle réglementaire CS publiée (ni applicable, ni explicitement
+    /// non applicable). Remplace l'ancien champ manuel TCS dans l'écran V1 — alimente la MÊME taxe CS que
+    /// <see cref="DefaultCsRatePercent"/> (jamais une taxe/un champ concurrent) : priorité au calcul,
+    /// article par article : 1) règle réglementaire officielle CS, 2) CS explicitement non applicable,
+    /// 3) ce taux CS manuel confirmé pour cette importation, 4) <see cref="DefaultCsRatePercent"/> (valeur
+    /// de repli de l'importation), 5) NON DÉTERMINÉ (avertissement, jamais un blocage). Ne modifie jamais
+    /// la base réglementaire permanente — reste une valeur propre à cette importation, tracée comme
+    /// <see cref="DataOriginTag.DonneeUtilisateur"/> dans le calcul.
+    /// </summary>
+    public decimal? ManualCsRatePercent { get; set; }
+    public bool UserConfirmedManualCs { get; set; }
 
     // ------------------------------------------------------------------------------------------
     // Revue du 2026-10-02 (correction urgente — "ne plus bloquer le calcul faute de RegulatoryRule") :

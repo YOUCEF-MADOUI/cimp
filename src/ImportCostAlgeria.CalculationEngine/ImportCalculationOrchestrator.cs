@@ -1259,7 +1259,11 @@ public sealed class ImportCalculationOrchestrator
             var standardTaxApplicability = RegulatoryRuleEngine.BuildStandardTaxApplicabilityReport(
                 regOutcome, RegulatoryRuleEngine.StandardAdditionalTaxCodes);
 
-            // ---- CS (Contribution de Solidarité) : assiette Valeur en douane par défaut (Section 5). ----
+            // ---- CS (Contribution de Solidarité) : assiette Valeur en douane par défaut (Section 5).
+            // Tâche #21, point 5 : cascade de priorité désormais — 1) règle réglementaire officielle,
+            // 2) CS explicitement non applicable, 3) taux CS confirmé manuellement pour cette importation
+            // (UserConfirmedManualCs / ManualCsRatePercent, écran V1), 4) taux CS par défaut de
+            // l'importation (uniquement si le SH est totalement inconnu du référentiel), 5) NON DÉTERMINÉ. ----
             var csRule = FindOfficialTaxRule("CS");
             if (csRule != null)
             {
@@ -1275,6 +1279,34 @@ public sealed class ImportCalculationOrchestrator
             {
                 anomalies.Add(new CalculationAnomaly(AnomalySeverity.Info, "CS_NOT_APPLICABLE",
                     $"ℹ️ Ligne {line.LineNumber} ({line.ProductReference}) : Contribution de Solidarité (CS) explicitement NON APPLICABLE selon une règle réglementaire officielle.",
+                    LineNumber: line.LineNumber));
+            }
+            // Tâche #21, point 5 ("Retirer la TCS de l'écran V1, exposer la CS comme taxe de solidarité
+            // utilisateur") : confirmation manuelle d'un taux CS pour TOUTE l'importation (jamais par
+            // article), UNE SEULE fois par import — priorité juste après la règle officielle et le statut
+            // "explicitement non applicable", et AVANT le taux par défaut de l'importation. Alimente la
+            // MÊME taxe CS (TaxCode "CS") que les branches ci-dessus/ci-dessous : jamais une seconde taxe
+            // concurrente, jamais un second champ de taux CS.
+            else if (operation.UserConfirmedManualCs && operation.ManualCsRatePercent.HasValue)
+            {
+                decimal manualCsBase = customsValueDzd;
+                decimal manualCsAmount = CurrencyCalculator.RoundDzd(manualCsBase * (operation.ManualCsRatePercent.Value / 100m));
+                additionalTaxBreakdowns.Add(new AppliedTaxBreakdown(
+                    TaxCode: "CS",
+                    TaxNameFr: "Contribution de Solidarité (CS)",
+                    TaxableBaseDzd: manualCsBase,
+                    RatePercent: operation.ManualCsRatePercent.Value,
+                    TaxAmountDzd: manualCsAmount,
+                    IsNonRecoverable: true,
+                    RegulatoryRuleCode: "MANUEL",
+                    LegalArticleReference: "Taux saisi manuellement par l'utilisateur (aucune règle officielle publiée)",
+                    JoraReference: "N/A",
+                    RegulatoryVersionCode: "MANUEL",
+                    OriginTag: DataOriginTag.DonneeUtilisateur));
+                anomalies.Add(new CalculationAnomaly(
+                    AnomalySeverity.Avertissement,
+                    "CS_MANUAL_RATE_USED",
+                    $"⚠️ Ligne {line.LineNumber} ({line.ProductReference}) : Taux CS ({operation.ManualCsRatePercent.Value:F2} %) saisi manuellement pour cette importation, en l'absence de règle officielle.",
                     LineNumber: line.LineNumber));
             }
             // Correction du 2026-10-02 (régression Section H) : le taux PAR DÉFAUT de la CS ne doit être

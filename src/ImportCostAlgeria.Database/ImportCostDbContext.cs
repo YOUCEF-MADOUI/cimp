@@ -150,6 +150,9 @@ public sealed class ImportCostDbContext : DbContext
             b.Property(x => x.ManualAuthorizationCurrencyRateToDzd).HasPrecision(18, 6);
             b.Property(x => x.ManualPrctRatePercent).HasPrecision(9, 4);
             b.Property(x => x.ManualTcsRatePercent).HasPrecision(9, 4);
+            // Tâche #21, point 5 : nouveau taux CS manuel (écran V1) — ManualTcsRatePercent ci-dessus reste
+            // mappé pour la compatibilité des bases SQLite existantes, mais n'est plus exposé en V1.
+            b.Property(x => x.ManualCsRatePercent).HasPrecision(9, 4);
             // Revue du 2026-10-02 (correction urgente) : taux de taxes PAR DÉFAUT de l'importation.
             b.Property(x => x.DefaultDdRatePercent).HasPrecision(9, 4);
             b.Property(x => x.DefaultCsRatePercent).HasPrecision(9, 4);

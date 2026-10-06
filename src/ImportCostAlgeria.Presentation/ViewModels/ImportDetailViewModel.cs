@@ -84,6 +84,7 @@ public sealed class ImportDetailViewModel : ObservableObject
     private string _headerLabel = string.Empty;
     private StandardFeeTemplate? _selectedFeeTemplate;
     private bool _showAnomalyDetails;
+    private AnomalyGroupSummary? _selectedAnomalyGroup;
     private string _notificationBannerFr = string.Empty;
 
     public ImportDetailViewModel(
@@ -152,6 +153,7 @@ public sealed class ImportDetailViewModel : ObservableObject
         RedoCommand = new RelayCommand(() => UndoRedo.Redo(), () => UndoRedo.CanRedo);
         ToggleAnomalyDetailsCommand = new RelayCommand(() => ShowAnomalyDetails = !ShowAnomalyDetails);
         ToggleResultsBreakdownCommand = new RelayCommand(() => ShowResultsBreakdown = !ShowResultsBreakdown);
+        ClearAnomalyGroupSelectionCommand = new RelayCommand(() => SelectedAnomalyGroup = null);
         // PRIORITÉ 3 : chaque bouton [-5]...[+1]...[0]...[+5] passe sa valeur en CommandParameter (texte,
         // ex: "+2", "-3", "0") — jamais interprété comme un pourcentage (Section "IMPORTANT : ici point
         // signifie une variation ABSOLUE du taux de change dans la devise de cotation DA").
@@ -299,14 +301,74 @@ public sealed class ImportDetailViewModel : ObservableObject
 
     public ObservableCollection<ImportLineRowViewModel> Lines { get; }
     public ObservableCollection<FeeRowViewModel> Fees { get; }
+
+    /// <summary>
+    /// Liste BRUTE complète de toutes les anomalies (une entrée par article concerné), jamais filtrée —
+    /// reste la source de vérité intégrale, inchangée (voir <see cref="AnomalyGroupingService"/> pour le
+    /// regroupement par type et <see cref="FilteredAnomalies"/> pour la vue filtrée affichée à l'écran).
+    /// </summary>
     public ObservableCollection<CalculationAnomaly> Anomalies { get; }
 
     /// <summary>Section 7 (menu "Notifications") : résumé regroupé par TYPE d'anomalie — une seule entrée par code, jamais une répétition par article (voir <see cref="AnomalyGroupingService"/>).</summary>
     public ObservableCollection<AnomalyGroupSummary> AnomalyGroups { get; } = new();
 
-    /// <summary>Section 7 : bascule "Voir les détails" — affiche/masque la liste détaillée par article (<see cref="Anomalies"/>), sans jamais la supprimer.</summary>
+    /// <summary>
+    /// Tâche #21, point 4 ("Notifications : filtrer les détails") : groupe de notifications actuellement
+    /// sélectionné dans <see cref="AnomalyGroups"/> (ex: ligne "8 articles avec un Droit de Douane Excel
+    /// anormalement faible (&lt; 1 %)", code "EXCEL_DUTY_RATE_SUSPICIOUSLY_LOW"). Null = aucune sélection,
+    /// auquel cas "Voir les détails" affiche TOUTES les anomalies (comportement d'origine, inchangé). Ne
+    /// modifie jamais <see cref="AnomalyGroupingService.GroupByCode"/> (le regroupement reste la seule
+    /// source de vérité pour <see cref="AnomalyGroups"/>) — cette propriété ne fait QUE mémoriser la
+    /// sélection pour piloter le filtrage de <see cref="FilteredAnomalies"/> ci-dessous.
+    /// </summary>
+    public AnomalyGroupSummary? SelectedAnomalyGroup
+    {
+        get => _selectedAnomalyGroup;
+        set
+        {
+            if (SetField(ref _selectedAnomalyGroup, value))
+                RefreshFilteredAnomalies();
+        }
+    }
+
+    /// <summary>
+    /// Tâche #21, point 4 : projection de <see cref="Anomalies"/> réellement affichée par le tableau de
+    /// détail ("Voir les détails"). Sans sélection (<see cref="SelectedAnomalyGroup"/> == null), contient
+    /// TOUTES les anomalies (comportement d'origine). Avec une notification sélectionnée, ne contient QUE
+    /// les anomalies dont <see cref="CalculationAnomaly.AnomalyCode"/> correspond exactement au code du
+    /// groupe sélectionné — jamais une suppression de données, uniquement une vue filtrée de la même liste
+    /// brute <see cref="Anomalies"/>, qui reste par ailleurs intégralement disponible/inchangée.
+    /// </summary>
+    public ObservableCollection<CalculationAnomaly> FilteredAnomalies { get; } = new();
+
+    /// <summary>Section 7 : bascule "Voir les détails" — affiche/masque la liste détaillée par article (<see cref="FilteredAnomalies"/>), sans jamais la supprimer.</summary>
     public bool ShowAnomalyDetails { get => _showAnomalyDetails; set => SetField(ref _showAnomalyDetails, value); }
     public RelayCommand ToggleAnomalyDetailsCommand { get; private set; } = null!;
+
+    /// <summary>Tâche #21, point 4 : efface la sélection courante pour revenir à l'affichage de toutes les anomalies dans "Voir les détails".</summary>
+    public RelayCommand ClearAnomalyGroupSelectionCommand { get; private set; } = null!;
+
+    /// <summary>
+    /// Recalcule <see cref="FilteredAnomalies"/> à partir de <see cref="Anomalies"/> (source de vérité
+    /// jamais modifiée) et de <see cref="SelectedAnomalyGroup"/> (null = aucun filtre, toutes les
+    /// anomalies). Appelée à chaque changement de sélection et après chaque recalcul complet. La règle de
+    /// filtrage elle-même est déléguée à <see cref="AnomalyGroupingService.FilterByAnomalyCode"/> — une
+    /// méthode PURE (aucune dépendance à l'état de cette instance ni à un repository), placée aux côtés de
+    /// <see cref="AnomalyGroupingService.GroupByCode"/> (qui reste intégralement inchangé et demeure la
+    /// SEULE source du regroupement par type) précisément pour rester directement testable unitairement
+    /// SANS devoir instancier <see cref="ImportDetailViewModel"/> (dont le constructeur dépend de
+    /// plusieurs repositories/services applicatifs non disponibles dans un test unitaire pur, et dont le
+    /// projet, ciblant net8.0-windows/WPF, n'est délibérément PAS référencé par le projet de tests). La
+    /// DÉCISION de filtrage (quelle sélection, quand rafraîchir) reste exclusivement pilotée ici, au niveau
+    /// du ViewModel — seule l'opération de filtrage pure et réutilisable est partagée.
+    /// </summary>
+    private void RefreshFilteredAnomalies()
+    {
+        var filtered = AnomalyGroupingService.FilterByAnomalyCode(Anomalies, _selectedAnomalyGroup?.AnomalyCode);
+        FilteredAnomalies.Clear();
+        foreach (var anomaly in filtered)
+            FilteredAnomalies.Add(anomaly);
+    }
 
     /// <summary>Section 5.1 (menu "Édition") : historique Annuler/Rétablir de cet écran.</summary>
     public UndoRedoManager UndoRedo { get; private set; } = null!;
@@ -810,7 +872,14 @@ public sealed class ImportDetailViewModel : ObservableObject
         set { _operation.ManualPrctRatePercent = value; OnPropertyChanged(); }
     }
 
-    /// <summary>Même principe que <see cref="IsManualPrctMode"/>/<see cref="ManualPrctRateValue"/>, pour la TCS.</summary>
+    /// <summary>
+    /// Historique (jusqu'à la Tâche #21) : même principe que <see cref="IsManualPrctMode"/>/
+    /// <see cref="ManualPrctRateValue"/>, pour la TCS. Revue du 2026-10-06 (Tâche #21, point 5) : ces deux
+    /// propriétés ne sont PLUS liées à aucun élément de l'écran V1 (remplacées par
+    /// <see cref="IsManualCsMode"/>/<see cref="ManualCsRateValue"/> ci-dessous) — conservées uniquement
+    /// pour ne pas casser une éventuelle confirmation manuelle TCS déjà enregistrée dans une base SQLite
+    /// existante (voir <see cref="Core.Domain.ImportOperation.UserConfirmedManualTcs"/>).
+    /// </summary>
     public bool IsManualTcsMode
     {
         get => _operation?.UserConfirmedManualTcs ?? false;
@@ -821,6 +890,26 @@ public sealed class ImportDetailViewModel : ObservableObject
     {
         get => _operation?.ManualTcsRatePercent;
         set { _operation.ManualTcsRatePercent = value; OnPropertyChanged(); }
+    }
+
+    /// <summary>
+    /// Tâche #21, point 5 ("Retirer la TCS de l'écran V1, exposer la CS") : confirmation manuelle d'un taux
+    /// de Contribution de Solidarité (CS) pour TOUTE cette importation (jamais par article), UNE SEULE
+    /// fois par import — remplace <see cref="IsManualTcsMode"/> dans l'écran V1. Alimente directement
+    /// <see cref="Core.Domain.ImportOperation.UserConfirmedManualCs"/>, utilisé par
+    /// ImportCalculationOrchestrator dans la MÊME cascade de calcul CS que
+    /// <see cref="DefaultCsRateValue"/> (jamais un second champ de taux CS concurrent).
+    /// </summary>
+    public bool IsManualCsMode
+    {
+        get => _operation?.UserConfirmedManualCs ?? false;
+        set { _operation.UserConfirmedManualCs = value; OnPropertyChanged(); OnPropertyChanged(nameof(ManualCsRateValue)); }
+    }
+
+    public decimal? ManualCsRateValue
+    {
+        get => _operation?.ManualCsRatePercent;
+        set { _operation.ManualCsRatePercent = value; OnPropertyChanged(); }
     }
 
     // ------------------------------------------------------------------------------------------
@@ -1162,6 +1251,16 @@ public sealed class ImportDetailViewModel : ObservableObject
         AnomalyGroups.Clear();
         foreach (var group in AnomalyGroupingService.GroupByCode(summary.Anomalies))
             AnomalyGroups.Add(group);
+
+        // Tâche #21, point 4 : un nouveau calcul reconstruit entièrement AnomalyGroups — une sélection
+        // précédente n'a donc plus de sens garantie (le groupe peut avoir disparu, changé de nombre
+        // d'occurrences, etc.) : on revient explicitement à "aucune sélection" (= toutes les anomalies
+        // visibles dans "Voir les détails"), jamais une sélection silencieusement obsolète. RefreshFilteredAnomalies()
+        // est appelé par le setter de SelectedAnomalyGroup ci-dessous ; appelé une seconde fois explicitement
+        // ici pour garantir que FilteredAnomalies reflète bien la liste Anomalies FRAÎCHEMENT rechargée
+        // ci-dessus même si la sélection était déjà null (SetField ne déclenche rien si la valeur ne change pas).
+        SelectedAnomalyGroup = null;
+        RefreshFilteredAnomalies();
 
         NotificationBannerFr = summary.Anomalies.Count == 0
             ? "✓ Aucune anomalie détectée pour cette importation."

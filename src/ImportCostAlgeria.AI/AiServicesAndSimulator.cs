@@ -107,6 +107,11 @@ public sealed class ImportSimulatorService
             UserConfirmedManualPrct = originalOperation.UserConfirmedManualPrct,
             ManualTcsRatePercent = originalOperation.ManualTcsRatePercent,
             UserConfirmedManualTcs = originalOperation.UserConfirmedManualTcs,
+            // Tâche #21, point 5 : même raisonnement pour la nouvelle confirmation manuelle CS (écran V1) —
+            // doit être reconduite dans le clone de simulation, sinon le simulateur afficherait une CS "par
+            // défaut"/"non déterminée" incohérente avec l'opération réelle qui utilise un taux CS confirmé.
+            ManualCsRatePercent = originalOperation.ManualCsRatePercent,
+            UserConfirmedManualCs = originalOperation.UserConfirmedManualCs,
             // Revue du 2026-10-02 (correction urgente) : les taux PAR DÉFAUT de l'importation réelle sont
             // également reconduits dans la simulation "what-if" — sinon le simulateur afficherait des
             // résultats/anomalies incohérents avec l'opération réelle (ex: TVA/CS/PRCT retombant à 0 ou

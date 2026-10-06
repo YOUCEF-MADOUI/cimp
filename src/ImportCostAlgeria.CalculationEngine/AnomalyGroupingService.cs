@@ -45,6 +45,31 @@ public static class AnomalyGroupingService
     }
 
     /// <summary>
+    /// Tâche #21, point 4 ("Notifications : filtrer 'Voir les détails' sur la notification sélectionnée").
+    /// Méthode PURE indépendante de toute UI, volontairement placée ici — aux côtés de
+    /// <see cref="GroupByCode"/>, qui reste intégralement INCHANGÉ et demeure la SEULE source du
+    /// regroupement par type — afin de rester directement testable unitairement et réutilisable par la
+    /// couche de présentation (voir ImportCostAlgeria.Presentation.ViewModels.ImportDetailViewModel.
+    /// RefreshFilteredAnomalies, qui délègue ICI la décision de filtrage effective). Ne modifie ni ne
+    /// supprime jamais <paramref name="anomalies"/> — ne fait que PROJETER (filtrer) la liste existante :
+    /// <paramref name="selectedAnomalyCode"/> == null/vide -&gt; retourne la liste complète inchangée (="Voir
+    /// les détails" affiche tout, comportement d'origine) ; sinon ne retourne QUE les anomalies dont
+    /// <see cref="CalculationAnomaly.AnomalyCode"/> correspond EXACTEMENT au code demandé (ex :
+    /// "EXCEL_DUTY_RATE_SUSPICIOUSLY_LOW" -&gt; uniquement les occurrences de ce code, jamais les autres
+    /// types d'anomalies mélangés).
+    /// </summary>
+    public static IReadOnlyList<CalculationAnomaly> FilterByAnomalyCode(
+        IReadOnlyList<CalculationAnomaly> anomalies, string? selectedAnomalyCode)
+    {
+        if (string.IsNullOrEmpty(selectedAnomalyCode))
+            return anomalies;
+
+        return anomalies
+            .Where(a => string.Equals(a.AnomalyCode, selectedAnomalyCode, StringComparison.Ordinal))
+            .ToList();
+    }
+
+    /// <summary>
     /// Libellé FRANÇAIS lisible d'un groupe (ex : "25 articles avec TVA par défaut"), repris le plus
     /// fidèlement possible de l'exemple donné par l'utilisateur. Les codes non reconnus explicitement
     /// reçoivent un libellé générique (jamais une ligne vide ni une exception) afin qu'une future anomalie

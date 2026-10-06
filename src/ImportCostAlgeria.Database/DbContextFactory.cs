@@ -196,6 +196,18 @@ public static class DbContextFactory
             // DEFAULT 0 pour les lignes déjà existantes dans une base déployée : comportement inchangé pour
             // tout import déjà saisi (le DD Excel reste utilisé, comme si la case n'avait jamais été cochée).
             AddColumnIfMissing(connection, "ImportLines", "ForceAiDutyRate", "INTEGER NOT NULL DEFAULT 0");
+
+            // Tâche #21, point 5 (2026-10-06 — "Retirer la TCS de l'écran V1, exposer la CS comme taxe de
+            // solidarité utilisateur") : nouvelles colonnes NULLABLE/DEFAULT 0 — une base déjà déployée reste
+            // parfaitement utilisable sans elles (aucune confirmation manuelle CS tant que l'utilisateur ne
+            // l'a pas explicitement saisie, comportement inchangé : règle officielle puis taux CS par défaut
+            // de l'importation, exactement comme avant cette tâche). Les anciennes colonnes
+            // ManualTcsRatePercent/UserConfirmedManualTcs ci-dessus sont CONSERVÉES TELLES QUELLES (aucune
+            // suppression, aucun renommage) pour ne jamais corrompre/perdre une confirmation manuelle TCS
+            // déjà enregistrée sur une installation existante — elles ne sont simplement plus exposées dans
+            // l'écran V1 (voir ImportDetailView.xaml / ImportDetailViewModel).
+            AddColumnIfMissing(connection, "ImportOperations", "ManualCsRatePercent", "TEXT NULL");
+            AddColumnIfMissing(connection, "ImportOperations", "UserConfirmedManualCs", "INTEGER NOT NULL DEFAULT 0");
         }
         finally
         {
